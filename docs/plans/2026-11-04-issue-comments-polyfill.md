@@ -69,7 +69,7 @@ App type: file I/O over a library core. Categories: file, encoding, deep. Risks:
 - e.g. `collectComments({}) -> {ok: false, reason: "no dirs"}`
 - e.g. `collectComments({PI_ENSEMBLE_EXTRA_IMAGE_DIRS: "/tmp/a:/tmp/b"})`, both matching -> `{ok: false, reason: "ambiguous", dirs: ["/tmp/a", "/tmp/b"]}`
 **Review Focus:** `test_file_name_escapes_directory` (`"../secret.json"`, `"/etc/passwd"` -> `bad file name`); `test_symlink_rejected`; `test_wrong_size`; `test_nul_and_bad_utf8`; `test_issue_mismatch`; `test_no_comments_entry`; `test_two_matching_manifests`; `test_images_off_still_reads`.
-**Notes:** integrity is checked against the file's own bytes: `lstat` (regular file, not a symlink), size against `bytes`, sha256 of the read bytes against `sha256`, then `new TextDecoder("utf-8", {fatal: true})` and a `\u0000` scan. Fixtures under `mkdtempSync(join(tmpdir(), "ic-"))`.
+**Notes:** integrity is checked against the file's own bytes: `lstat` (regular file, not a symlink), size against `bytes`, sha256 of the read bytes against `sha256`, then `new TextDecoder("utf-8", {fatal: true})` and a `\u0000` scan.
 
 ### T3 rendering · Complexity 6 (O-1) · Est. context 25k
 **Owns:** packages/issue-comments/render.ts, packages/issue-comments/test/render.test.ts
@@ -81,7 +81,6 @@ App type: file I/O over a library core. Categories: file, encoding, deep. Risks:
 **Review Focus:** `test_cut_at_4000_keeps_surrogate_pair` (`"a".repeat(3999) + "\u{1F600}"` cuts at 4,000 characters ending ` […]`, no lone surrogate); `test_cap_drops_oldest_and_counts` (30 items of 3,000 characters: newest kept, `bytes` at most 65,536, dropped line present); `test_cap_boundary_exact`; `test_order_at_then_id`; `test_labels_for_every_source`; `test_malformed_items_dropped` (`by: ""`, `url: "http://x.io"`, `id: 1.5`, a string item: absent from `text`, counted in `dropped`).
 **Detail:** full
 **Notes:** empty `items` gives `{count: 0, bytes: 0, dropped: 0}` and the header alone; the caller sends no message then.
-
 ### T4 the extension · Complexity 4 (O-1) · Est. context 27k
 **Owns:** packages/issue-comments/index.ts, packages/issue-comments/README.md, packages/issue-comments/test/extension.test.ts
 **Components:** 2 · **LOC owned:** 120 · **Tests:** fast · **Est. time:** 4 min
@@ -97,7 +96,7 @@ App type: file I/O over a library core. Categories: file, encoding, deep. Risks:
 **Components:** 1 · **LOC owned:** 90 · **Tests:** fast · **Est. time:** 3 min
 **Consumes:** collectComments(env: NodeJS.ProcessEnv) -> CollectOutcome (T2) · renderComments(blob: CommentsBlob) -> Rendered (T3) · issueCommentsExtension(pi: ExtensionAPI) -> void (T4) · writeFixture(o: FixtureOpts) -> FixturePaths (T1)
 **Review Focus:** `test_end_to_end_six_sources` (one item per source, all six blocks oldest first, stderr `6 comments`); `test_two_dirs_one_matching`; `test_dir_without_manifest_is_skipped`.
-**Notes:** the real modules only, no fakes. This is the seam task; it also runs with `SUPERLITE_REAL=1`.
+**Notes:** the real modules only, no fakes; the seam task, run with `SUPERLITE_REAL=1` too.
 
 ## Package scripts
 
