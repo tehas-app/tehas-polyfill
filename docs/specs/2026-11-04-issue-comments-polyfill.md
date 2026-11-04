@@ -44,7 +44,7 @@ A pi extension, so pi-rukas forwards it to the child sessions it spawns.
 
 ## S4 The message
 
-`before_agent_start`, only when `messageType === "user"`, once per session. One injected message, `customType: "issue-comments"`, `display: true`, with the rendering:
+`before_agent_start`, only when `messageType === "user"`, once per session — the latch is set on the first such run, before the blob is read, so a failed read writes its line once and is not retried on a later turn. One injected message, `customType: "issue-comments"`, `display: true`, with the rendering:
 
 ```
 ## Comments on this issue and its pull requests
@@ -91,7 +91,7 @@ It only opens PRs and issues: never merges, never applies `tehas:*` labels, and 
 ## S9 Exact values and type shapes
 
 - `read.ts` reasons, exactly: `no manifest`, `bad manifest`, `no comments entry`, `bad file name`, `not a file`, `symlink`, `size mismatch`, `sha256 mismatch`, `bad utf8`, `nul byte`, `bad json`, `bad version`, `issue mismatch`, `bad until`, `no items`. `collectComments` adds `no dirs` and `ambiguous`.
-- `until` and `at` match `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$`. `url` matches `^https://[A-Za-z0-9._~%/?&=+:-]{1,300}$`. `by` is 1..100 characters. `id` and `line` are integers, `line` above 0. The manifest's `comments.file` matches `^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$`.
+- `until` and `at` match `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$`, and `at` must additionally parse as a date: a timestamp that passes the pattern but names no real instant, say `2026-02-30T00:00:00Z`, is a malformed item. `url` matches `^https://[A-Za-z0-9._~%/?&=+:-]{1,300}$`. `by` matches `^[^\u0000-\u001f\u007f]{1,100}$` — no control characters, because it prints into the unquoted `###` label. `path` matches `^[^\u0000-\u001f\u007f`]{1,300}$ with no leading `/` and no `..` segment, for the same reason and because one unbounded path could push every other comment over the cap. `id` and `line` are integers, `line` above 0. The manifest's `comments.file` matches `^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$`.
 - A block is `### <label>\n\n> <text>`, the text's lines joined by `\n> `, blocks joined by `\n\n`, no trailing newline. `bytes` is the UTF-8 length of the joined blocks; the cap is 65,536 of them; the dropped line after the blocks is `N older comments dropped to stay within 64 KB.`
 - pi-rukas tags are `v<major>.<minor>.<patch>`; the probe covers the newest 12 plus the package's `from`.
 - Types. In `packages/issue-comments/types.ts`: `CommentSource`, `CommentItem`, `CommentsBlob`, `FixtureOpts`, `FixturePaths`, `ReadOutcome`, `CollectOutcome`, `Rendered`. In `scripts/lib/types.ts`: `PolyfillRecord`, `ProbeRow`, `UpstreamState`, `OpenTitles`, `TrackAction`, `TrackOpts`.

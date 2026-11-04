@@ -30,6 +30,7 @@ flowchart LR
   T4
   T5
   T6
+  T6b
   T7
   T8
   T9
@@ -40,6 +41,7 @@ flowchart LR
   T2 --> T5
   T3 --> T5
   T4 --> T5
+  T6 --> T6b
   T7 --> T9
   T8 --> T9
 ```
@@ -70,6 +72,16 @@ App type: file I/O over a library core. Categories: file, encoding, deep. Risks:
 - e.g. `collectComments({PI_ENSEMBLE_EXTRA_IMAGE_DIRS: "/tmp/a:/tmp/b"})`, both matching -> `{ok: false, reason: "ambiguous", dirs: ["/tmp/a", "/tmp/b"]}`
 **Review Focus:** `test_file_name_escapes_directory` (`"../secret.json"`, `"/etc/passwd"` -> `bad file name`); `test_symlink_rejected`; `test_wrong_size`; `test_nul_and_bad_utf8`; `test_issue_mismatch`; `test_no_comments_entry`; `test_two_matching_manifests`; `test_images_off_still_reads`.
 **Notes:** integrity is checked against the file's own bytes: `lstat` (regular file, not a symlink), size against `bytes`, sha256 of the read bytes against `sha256`, then `new TextDecoder("utf-8", {fatal: true})` and a `\u0000` scan.
+
+### T6b probe fixtures · Complexity 1 (O-1) · Est. context 18k
+**Kind:** mechanical · **Model:** haiku
+**Owns:** scripts/fixtures/capabilities/v0.14.0.ts, scripts/fixtures/capabilities/v0.14.50.ts, scripts/test/fixtures.test.ts
+**Components:** 1 · **LOC owned:** 60 · **Tests:** fast · **Est. time:** 2 min
+**Consumes:** -
+**Produces:** fixtureSources() -> Record<string, string>
+- e.g. `fixtureSources()["v0.14.0"]` -> the text of `scripts/fixtures/capabilities/v0.14.0.ts`, which declares no `issueComments`
+**Review Focus:** `test_fixtures_match_upstream`: each fixture's `HEADLESS_FEATURES` keys are a subset of the keys in the real file at that tag (`gh api repos/trail-openers/pi-rukas/contents/extension/src/headless/capabilities.ts?ref=<tag>`); `test_only_the_synthetic_entry_says_lists`: only `v0.14.50.ts` declares `issueComments: true`, and that line is marked synthetic in a comment.
+**Notes:** the two fixtures came from T6's ruling fix and are owned here so a checkpoint can record them. Call `probeReleases` from `scripts/capability_probe.ts` as shipped — its second argument is `Record<string, string>` of decoded source text, which is the T6 ruling, not the signature the frozen T6 block prints. Verify the fixtures against upstream; if an excerpt drifted, refresh it from the tag rather than editing it by hand.
 
 ### T3 rendering · Complexity 6 (O-1) · Est. context 25k
 **Owns:** packages/issue-comments/render.ts, packages/issue-comments/test/render.test.ts
