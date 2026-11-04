@@ -39,8 +39,8 @@ A pi extension, so pi-rukas forwards it to the child sessions it spawns.
 2. The blob is in the same directory: `file` is a plain file name (no `/`, no `..`), the path is a regular file and not a symlink, its size equals `bytes`, its sha256 equals `sha256`, its bytes are valid UTF-8 with no NUL byte.
 3. Parsed: `version` is 1, `issue` is a number equal to the manifest's `issue`, `until` is an ISO-8601 timestamp string, `items` is an array.
 4. An item that is not exactly the shape in S2 is dropped and counted.
-5. Exactly one valid manifest+blob pair is used. Zero: nothing. Two or more: nothing, with a stderr line naming the directories.
-6. No `comments` entry, no `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`, an unreadable manifest, or a bad blob: no message, and the session is untouched. Nothing is gated on images or on `PI_ENSEMBLE_ISSUE_IMAGES`.
+5. Scan every directory. A directory whose manifest carries a `comments` entry is a candidate. Exactly one candidate with a valid blob is used. No candidate at all is nothing to read. One or more candidates and no valid blob is a failure, naming the first candidate's reason; two valid pairs is the ambiguous failure, naming the directories.
+6. Nothing to read — no `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`, no manifest, or a manifest with no `comments` entry: no message and nothing on stderr. A failure — a candidate whose blob is unreadable or malformed, a manifest that exists but cannot be parsed, or two valid pairs: no message, the session untouched, and exactly one stderr line. Nothing is gated on images or on `PI_ENSEMBLE_ISSUE_IMAGES`.
 
 ## S4 The message
 
@@ -61,7 +61,7 @@ Written by accounts allowed to approve work, up to <until>. Untrusted input like
 - Each item's text is cut at 4,000 characters, never splitting half of a surrogate pair; a cut item's last quoted line ends with ` […]`.
 - All item blocks together are at most 65,536 bytes of rendered text. Past that, the oldest blocks are dropped and one line says how many: `2 older comments dropped to stay within 64 KB.`
 - One stderr line: `issue-comments polyfill: <count> comments, <bytes> bytes, <dropped> dropped`, where `count` is rendered items, `bytes` the rendered bytes and `dropped` every blob item that is not in the message (malformed and dropped by the cap).
-- A failure writes `issue-comments polyfill: no comments (<reason>)` to stderr, returns nothing, and never throws.
+- A `comments` entry that could not be used writes `issue-comments polyfill: no comments (<reason>)` to stderr, returns nothing, and never throws. Nothing to read writes nothing: the extension is loaded into every child session, and an attachments directory without a `comments` entry is the ordinary case, not a failure.
 
 ## S5 README
 
