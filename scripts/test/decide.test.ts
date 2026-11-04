@@ -1,0 +1,151 @@
+// Tests for the tracking decision: spec S7 (what the workflow does for each upstream state) and
+// PROCESS.md step 6. Titles are matched exactly, because idempotence is by title.
+
+import { expect, test } from "bun:test";
+import { containsCommit, decidePackage } from "../lib/decide";
+import type { OpenTitles, PolyfillRecord, TrackAction, UpstreamState } from "../lib/types";
+
+const base: PolyfillRecord = {
+  name: "issue-comments",
+  state: "active",
+  from: "v0.14.0",
+  upstreamIssue: "trail-openers/pi-rukas#2020",
+  upstreamFeature: "issueComments",
+  pr: null,
+  until: null,
+  path: "packages/issue-comments/polyfill.json",
+};
+
+const activePkg: PolyfillRecord = base;
+const mergedPkg: PolyfillRecord = { ...base, state: "merged", pr: 2100 };
+const mergedWithUntil: PolyfillRecord = { ...mergedPkg, until: "v0.15.0" };
+const releasedPkg: PolyfillRecord = { ...mergedPkg, state: "released", until: "v0.15.0" };
+const declinedPkg: PolyfillRecord = { ...base, state: "declined" };
+
+const closedWithMerge: UpstreamState = { state: "closed", mergedPr: { number: 2100, mergeCommit: "abc123" } };
+const closedWithoutMerge: UpstreamState = { state: "closed", mergedPr: null };
+const openUpstream: UpstreamState = { state: "open", mergedPr: null };
+const nothingOpen: OpenTitles = { prs: [], issues: [] };
+
+function kinds(actions: TrackAction[]): string[] {
+  return actions.map((action) => action.kind);
+}
+
+test("open_upstream_does_nothing: an open issue that is not overdue files nothing", () => {
+  expect(decidePackage(activePkg, openUpstream, [], 30, nothingOpen)).toEqual([]);
+});
+
+test("active plus a merged upstream PR opens the merged PR here", () => {
+  const actions = decidePackage(activePkg, closedWithMerge, [], 10, nothingOpen);
+  expect(actions.length).toBe(1);
+  expect(actions[0]).toEqual({
+    kind: "pr-merged",
+    title: "issue-comments: upstream merged (pi-rukas#2020)",
+    body: expect.any(String),
+    patch: { state: "merged", pr: 2100 },
+  });
+  expect(actions[0]!.body).toContain("pi-rukas#2100");
+  expect(actions[0]!.body).toContain("abc123");
+  expect(actions[0]!.body.length).toBeGreaterThan(0);
+});
+
+test("merged plus a release that contains the commit goes released, and files the retirement issue", () => {
+  const actions = decidePackage(mergedPkg, closedWithMerge, ["v0.15.0"], 40, nothingOpen);
+  expect(kinds(actions)).toEqual(["pr-released", "issue-retire"]);
+  expect(actions[0]!.patch).toEqual({ state: "released", until: "v0.15.0" });
+  expect(actions[1]!.title).toBe("Retire polyfill issue-comments: pi-rukas v0.15.0 ships trail-openers/pi-rukas#2020");
+  expect(actions[1]!.body).toContain("v0.15.0");
+});
+
+test("the oldest containing release becomes until", () => {
+  const actions = decidePackage(mergedPkg, closedWithMerge, ["v0.15.0", "v0.16.0"], 40, nothingOpen);
+  expect(actions[0]!.patch).toEqual({ state: "released", until: "v0.15.0" });
+});
+
+test("merged_needs_a_release_to_go_released", () => {
+  expect(decidePackage(mergedPkg, closedWithMerge, [], 40, nothingOpen)).toEqual([]);
+  // A merged record that already carries an until is done waiting.
+  expect(decidePackage(mergedWithUntil, closedWithMerge, ["v0.15.0"], 40, nothingOpen)).toEqual([]);
+});
+
+test("declined_when_closed_without_merge: the PR here and the decision issue on tehas", () => {
+  const actions = decidePackage(activePkg, closedWithoutMerge, [], 10, nothingOpen);
+  expect(kinds(actions)).toEqual(["pr-declined", "issue-decide"]);
+  expect(actions[0]!.patch).toEqual({ state: "declined" });
+  expect(actions[0]!.title).toContain("issue-comments");
+  expect(actions[1]!.title).toContain("issue-comments");
+  expect(actions[1]!.title).toContain("trail-openers/pi-rukas#2020");
+});
+
+test("a record that is already retired is left alone", () => {
+  expect(decidePackage(releasedPkg, closedWithMerge, ["v0.15.0"], 40, nothingOpen)).toEqual([]);
+  expect(decidePackage(declinedPkg, closedWithoutMerge, [], 40, nothingOpen)).toEqual([]);
+  expect(decidePackage(releasedPkg, openUpstream, [], 90, nothingOpen)).toEqual([]);
+  expect(decidePackage(declinedPkg, openUpstream, [], 90, nothingOpen)).toEqual([]);
+});
+
+test("an active package past 60 days gets one reminder issue", () => {
+  expect(decidePackage(activePkg, openUpstream, [], 59, nothingOpen)).toEqual([]);
+  const actions = decidePackage(activePkg, openUpstream, [], 90, nothingOpen);
+  expect(actions.length).toBe(1);
+  expect(actions[0]!.kind).toBe("issue-reminder");
+  // The age is in the body, never in the title: an age in the title changes daily, and a title
+  // that changes daily is never already open, so a new issue would be filed every day.
+  expect(actions[0]!.title).toBe("Polyfill issue-comments is still active");
+  expect(actions[0]!.body).toContain("active for 90 days");
+  expect(actions[0]!.patch).toBeUndefined();
+});
+
+test("test_reminder_title_does_not_age: the same title tomorrow, so the open one suppresses it", () => {
+  const today = decidePackage(activePkg, openUpstream, [], 61, nothingOpen);
+  const nextWeek = decidePackage(activePkg, openUpstream, [], 68, nothingOpen);
+  expect(today.map((a) => a.title)).toEqual(nextWeek.map((a) => a.title));
+  expect(today[0]!.title).not.toContain("61");
+  expect(today[0]!.title).not.toMatch(/\d/);
+
+  // The body still says how old it is, and the second run sees the first one open.
+  expect(today[0]!.body).toContain("61 days");
+  expect(nextWeek[0]!.body).toContain("68 days");
+  expect(decidePackage(activePkg, openUpstream, [], 68, { prs: [], issues: [today[0]!.title] })).toEqual([]);
+});
+
+test("reminder_once: an open reminder title files nothing", () => {
+  const open: OpenTitles = { prs: [], issues: ["Polyfill issue-comments is still active"] };
+  expect(decidePackage(activePkg, openUpstream, [], 90, open)).toEqual([]);
+});
+
+test("reminder_only_for_active: a merged package is not reminded", () => {
+  expect(decidePackage(mergedPkg, openUpstream, [], 90, nothingOpen)).toEqual([]);
+});
+
+test("released_wins_over_reminder: a release in the same run replaces the reminder", () => {
+  const actions = decidePackage(mergedPkg, closedWithMerge, ["v0.15.0"], 90, nothingOpen);
+  expect(kinds(actions)).toEqual(["pr-released", "issue-retire"]);
+});
+
+test("an open PR or issue with the same title files nothing", () => {
+  const merged = decidePackage(activePkg, closedWithMerge, [], 10, {
+    prs: ["issue-comments: upstream merged (pi-rukas#2020)"],
+    issues: [],
+  });
+  expect(merged).toEqual([]);
+
+  const released = decidePackage(mergedPkg, closedWithMerge, ["v0.15.0"], 40, {
+    prs: [],
+    issues: ["Retire polyfill issue-comments: pi-rukas v0.15.0 ships trail-openers/pi-rukas#2020"],
+  });
+  expect(kinds(released)).toEqual(["pr-released"]);
+});
+
+test("an active package whose release is already out still goes merged first", () => {
+  const actions = decidePackage(activePkg, closedWithMerge, ["v0.15.0"], 10, nothingOpen);
+  expect(kinds(actions)).toEqual(["pr-merged"]);
+});
+
+test("containsCommit reads the gh compare status", () => {
+  expect(containsCommit("behind")).toBe(true);
+  expect(containsCommit("identical")).toBe(true);
+  expect(containsCommit("ahead")).toBe(false);
+  expect(containsCommit("diverged")).toBe(false);
+  expect(containsCommit("")).toBe(false);
+});

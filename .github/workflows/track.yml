@@ -1,0 +1,76 @@
+name: track polyfills
+
+on:
+  schedule:
+    # 06:10 UTC daily (PROCESS.md step 6).
+    - cron: "10 6 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: print what would be filed and change nothing. A dispatch can name any branch, so a dry run is the default."
+        type: boolean
+        default: true
+
+# Two tracker runs at once would race on the same `track/<package>-<action>` proposal branches, so
+# a queued run waits instead of cancelling the one that is filing.
+concurrency:
+  group: track-polyfills
+  cancel-in-progress: false
+
+# It opens PRs here and issues on tehas; it never merges and never labels (spec S7). `contents:
+# write` and `pull-requests: write` are for the proposal branch and the PR that carries it;
+# `issues: write` is for the tehas side, which also needs a token that can reach tehas.
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+env:
+  TEHAS_REPO: tehas-app/tehas
+  UPSTREAM_REPO: trail-openers/pi-rukas
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The token forge.ts pushes the proposal branch with. The default `GITHUB_TOKEN` is
+          # already write-scoped by the permissions above; naming it keeps that explicit.
+          token: ${{ github.token }}
+          # firstCommitAgeDays ages a record from the first commit touching its polyfill.json. The
+          # depth-1 default shows only the tip, so every record would age to 0 and the 60-day
+          # reminder could never fire.
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4"
+
+      - run: bun install
+
+      # This is the job with the schedule and the token, so it is the one that reaches upstream:
+      # the live probe lists the releases and reads capabilities.ts at each tag (spec S6). The
+      # per-PR job does the same thing from fixtures.
+      - run: bun run scripts/capability_probe.ts
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # The fixture-drift check runs where a job declares it has network, so it can fail here. In
+      # the offline job it prints a skip line instead.
+      - run: bun test scripts/test/fixtures.test.ts
+        env:
+          TEHAS_REQUIRE_UPSTREAM: "1"
+          GH_TOKEN: ${{ github.token }}
+
+      # One run per schedule: read each tracked polyfill record, ask decide.ts what to
+      # file, file it. A proposed change lands on its own `track/<package>-<action>` branch and
+      # the PR that names it; the checkout is left as it was. A gh or git failure exits 2 and
+      # leaves every polyfill.json byte-identical. A dispatch is a dry run unless it says
+      # otherwise, and a dry run files nothing and writes no branch.
+      - run: bun run scripts/track.ts ${{ inputs.dry_run && '--dry-run' || '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # tehas-app/tehas is not this repository, so github.token cannot file there. Unset, the
+          # tracker exits 2 naming TEHAS_TRACKING_TOKEN and files nothing (spec S7).
+          TEHAS_TRACKING_TOKEN: ${{ secrets.TEHAS_TRACKING_TOKEN }}

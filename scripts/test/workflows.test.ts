@@ -1,0 +1,68 @@
+// The two workflows are part of the tracker's contract (spec S6, S7): which job may reach the
+// network, which token each call runs with, what a job may write, and what it must fail on rather
+// than skip. These tests read the YAML as text, so a workflow that quietly loses a permission or a
+// credential fails here instead of in a scheduled run.
+
+import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+const ROOT = join(import.meta.dir, "..", "..");
+const TRACK = readFileSync(join(ROOT, ".github", "workflows", "track.yml"), "utf8");
+const POLYFILL_TESTS = readFileSync(join(ROOT, ".github", "workflows", "polyfill-tests.yml"), "utf8");
+
+/** The lines that run the probe, so a step cannot smuggle a live call past the fixture rule. */
+function probeLines(workflow: string): string[] {
+  return workflow.split("\n").filter((line) => line.includes("scripts/capability_probe.ts"));
+}
+
+test("test_polyfill_tests_job_probes_in_fixture_mode", () => {
+  const probe = probeLines(POLYFILL_TESTS);
+  expect(probe.length).toBe(1);
+  // S6: the per-PR job is offline and deterministic.
+  expect(probe[0]).toContain("--fixtures scripts/fixtures/capabilities");
+  // It declares no network, so the fixture-drift test prints its skip line there.
+  expect(POLYFILL_TESTS).not.toContain("TEHAS_REQUIRE_UPSTREAM");
+  expect(POLYFILL_TESTS).not.toContain("secrets.");
+});
+
+test("test_track_job_runs_the_live_probe_and_declares_its_network", () => {
+  const probe = probeLines(TRACK);
+  expect(probe.length).toBe(1);
+  expect(probe[0]).not.toContain("--fixtures");
+  // The job that holds the schedule is the one that says it has network, so the drift check has a
+  // job where it can fail.
+  expect(TRACK).toContain('TEHAS_REQUIRE_UPSTREAM: "1"');
+  expect(TRACK).toContain("bun test scripts/test/fixtures.test.ts");
+});
+
+test("test_track_job_fetches_the_history_it_ages_from", () => {
+  // firstCommitAgeDays runs `git log --reverse -- <path>`. A depth-1 checkout shows only the tip,
+  // every record ages to 0, and the 60-day reminder can never fire.
+  expect(TRACK).toContain("fetch-depth: 0");
+});
+
+test("test_track_job_files_cross_repo_with_its_own_credential", () => {
+  // A PR here needs pull-requests: write; an issue on tehas needs a token that can reach tehas.
+  expect(TRACK).toMatch(/permissions:\s*\n(?:\s{2,}\S[^\n]*\n)+?\s{2,}pull-requests:\s*write/);
+  expect(TRACK).toMatch(/contents:\s*write/);
+  expect(TRACK).toMatch(/issues:\s*write/);
+  expect(TRACK).toContain("TEHAS_TRACKING_TOKEN: ${{ secrets.TEHAS_TRACKING_TOKEN }}");
+  // The cross-repo credential is mapped in the step that files, and github.token is never the
+  // fallback for a call on another repository.
+  const trackStep = TRACK.slice(TRACK.indexOf("- run: bun run scripts/track.ts"));
+  expect(trackStep).toContain("GH_TOKEN: ${{ github.token }}");
+  expect(trackStep).toContain("TEHAS_TRACKING_TOKEN: ${{ secrets.TEHAS_TRACKING_TOKEN }}");
+});
+
+test("test_track_job_dispatches_as_a_dry_run_and_never_two_at_once", () => {
+  // workflow_dispatch accepts any branch, so its default must be the safe one.
+  expect(TRACK).toMatch(/workflow_dispatch:\s*\n\s{2,}inputs:\s*\n\s{4,}dry_run:/);
+  expect(TRACK).toMatch(/dry_run:[\s\S]{0,240}default:\s*true/);
+  expect(TRACK).toMatch(/description:\s*[^\n]*dry[^\n]*run/i);
+  expect(TRACK).toContain("inputs.dry_run");
+
+  // Two scheduled tracker runs at once would race on the same proposal branches.
+  expect(TRACK).toMatch(/concurrency:\s*\n\s{2,}group:[^\n]*track[^\n]*/);
+  expect(TRACK).toMatch(/cancel-in-progress:\s*false/);
+});
