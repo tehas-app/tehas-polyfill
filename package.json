@@ -1,0 +1,14 @@
+{
+  "name": "tehas-polyfill",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test packages/issue-comments scripts/test"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "~1.4.0",
+    "@types/node": "^20",
+    "typescript": "^5.4.0"
+  }
+}

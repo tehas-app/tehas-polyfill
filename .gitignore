@@ -1,0 +1,15 @@
+# superlite: dependency, build and cache folders
+.superlite/
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.claude
+# superlite: harness state
+.pi/
+# test fixtures written by packages/issue-comments/test/helpers.ts
+.tmp-fixtures/

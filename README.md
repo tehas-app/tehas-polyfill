@@ -8,7 +8,7 @@ pi extensions that give tehas a pi-rukas feature before a pi-rukas release ships
 
 | Name | Upstream | Feature | State |
 | ---- | -------- | ------- | ----- |
-| issue-comments | trail-openers/pi-rukas#2020 | `issueComments` | planned |
+| issue-comments | trail-openers/pi-rukas#2020 | `issueComments` | active |
 
 ## License
 
