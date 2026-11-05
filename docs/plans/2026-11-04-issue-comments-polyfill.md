@@ -75,12 +75,12 @@ App type: file I/O over a library core. Categories: file, encoding, deep. Risks:
 
 ### T6b probe fixtures · Complexity 1 (O-1) · Est. context 18k
 **Kind:** mechanical · **Model:** haiku
-**Owns:** scripts/fixtures/capabilities/v0.14.0.ts, scripts/fixtures/capabilities/v0.14.50.ts, scripts/test/fixtures.test.ts
+**Owns:** scripts/fixtures/capabilities/v0.14.0.ts, scripts/fixtures/capabilities/v0.14.50.ts, scripts/fixtures/synthetic/v0.14.99.ts, scripts/test/fixtures.test.ts
 **Components:** 1 · **LOC owned:** 60 · **Tests:** fast · **Est. time:** 2 min
 **Consumes:** -
 **Produces:** fixtureSources() -> Record<string, string>
 - e.g. `fixtureSources()["v0.14.0"]` -> the text of `scripts/fixtures/capabilities/v0.14.0.ts`, which declares no `issueComments`
-**Review Focus:** `test_fixtures_match_upstream`: each fixture's `HEADLESS_FEATURES` keys are a subset of the keys in the real file at that tag (`gh api repos/trail-openers/pi-rukas/contents/extension/src/headless/capabilities.ts?ref=<tag>`); `test_only_the_synthetic_entry_says_lists`: only `v0.14.50.ts` declares `issueComments: true`, and that line is marked synthetic in a comment.
+**Review Focus:** `test_fixtures_match_upstream`: each fixture's `HEADLESS_FEATURES` keys are a subset of the keys in the real file at that tag (`gh api repos/trail-openers/pi-rukas/contents/extension/src/headless/capabilities.ts?ref=<tag>`); `test_only_the_synthetic_entry_says_lists`: no fixture under `scripts/fixtures/capabilities/` declares `issueComments`, and the one that does is `scripts/fixtures/synthetic/v0.14.99.ts`, a tag upstream does not have, used only by the test that needs the probe to fail.
 **Notes:** the two fixtures came from T6's ruling fix and are owned here so a checkpoint can record them. Call `probeReleases` from `scripts/capability_probe.ts` as shipped — its second argument is `Record<string, string>` of decoded source text, which is the T6 ruling, not the signature the frozen T6 block prints. Verify the fixtures against upstream; if an excerpt drifted, refresh it from the tag rather than editing it by hand.
 
 ### T3 rendering · Complexity 6 (O-1) · Est. context 25k
@@ -116,7 +116,7 @@ App type: CLI over a pure decision core. Categories: protocol, state, file, enco
 **Probe entry:** `run=bun run scripts/track.ts --dry-run`
 
 ### T6 capability probe · Complexity 4 (O-1) · Est. context 28k
-**Owns:** scripts/lib/releases.ts, scripts/capability_probe.ts, scripts/fixtures/capabilities/v0.14.0.json, scripts/fixtures/capabilities/v0.14.50.json, scripts/test/releases.test.ts, scripts/test/capability_probe.test.ts, .github/workflows/polyfill-tests.yml
+**Owns:** scripts/lib/releases.ts, scripts/capability_probe.ts, scripts/fixtures/capabilities/v0.14.0.ts, scripts/fixtures/capabilities/v0.14.50.ts, scripts/test/releases.test.ts, scripts/test/capability_probe.test.ts, .github/workflows/polyfill-tests.yml
 **Components:** 2 · **LOC owned:** 170 · **Tests:** fast · **Est. time:** 5 min
 **Produces:** releaseTags(from: string, tags: string[], max: number) -> string[] · probeReleases(pkgs: PolyfillRecord[], docs: Record<string, unknown>) -> ProbeRow[]
 - e.g. `releaseTags("v0.14.0", ["v0.13.9", "v0.14.0", "v0.14.9", "v0.14.10", "v1.0.0"], 3) -> ["v1.0.0", "v0.14.10", "v0.14.0"]`
@@ -131,7 +131,7 @@ App type: CLI over a pure decision core. Categories: protocol, state, file, enco
 **Produces:** decidePackage(pkg: PolyfillRecord, up: UpstreamState, contained: string[], ageDays: number, open: OpenTitles) -> TrackAction[] · containsCommit(status: string) -> boolean
 - e.g. `decidePackage(activePkg, {state: "closed", mergedPr: {number: 2100, mergeCommit: "abc123"}}, [], 10, {prs: [], issues: []}) -> [{kind: "pr-merged", title: "issue-comments: upstream merged (pi-rukas#2020)", body: <string>, patch: {state: "merged", pr: 2100}}]`
 - e.g. `decidePackage(mergedPkg, {state: "closed", mergedPr: {number: 2100, mergeCommit: "abc123"}}, ["v0.15.0"], 40, {prs: [], issues: []}) -> [{kind: "pr-released", patch: {state: "released", until: "v0.15.0"}}, {kind: "issue-retire", title: "Retire polyfill issue-comments: pi-rukas v0.15.0 ships trail-openers/pi-rukas#2020"}]`
-- e.g. `decidePackage(activePkg, {state: "open", mergedPr: null}, [], 90, {prs: [], issues: []}) -> [{kind: "issue-reminder", title: "Polyfill issue-comments is still active after 90 days"}]`
+- e.g. `decidePackage(activePkg, {state: "open", mergedPr: null}, [], 90, {prs: [], issues: []}) -> [{kind: "issue-reminder", title: "Polyfill issue-comments is still active"}]` — the age is in the body, never in the title: an open reminder has to be recognised by exact title on the next run, whatever its age has become by then.
 - e.g. `containsCommit("behind") -> true`, `containsCommit("identical") -> true`, `containsCommit("ahead") -> false`
 **Review Focus:** `test_open_upstream_does_nothing` (open, no merged PR, 30 days -> `[]`); `test_declined_when_closed_without_merge` (`pr-declined` plus `issue-decide`); `test_reminder_once` (an open reminder title gives `[]`); `test_reminder_only_for_active`; `test_released_wins_over_reminder`; `test_merged_needs_a_release_to_go_released`.
 **Notes:** `contained` is the release tags whose compare status was `behind` or `identical`, oldest first; the first becomes `until`. A `merged` package already carrying `until` returns `[]`.
@@ -141,17 +141,17 @@ App type: CLI over a pure decision core. Categories: protocol, state, file, enco
 **Components:** 1 · **LOC owned:** 120 · **Tests:** fast · **Est. time:** 4 min
 **Produces:** readPackages(root: string) -> PolyfillRecord[] · trackedPackages(root: string) -> PolyfillRecord[] · applyPatch(content: string, patch: Record<string, unknown>) -> string · alreadyOpen(open: string[], title: string) -> boolean · firstCommitAgeDays(repo: string, path: string, now: Date) -> number
 - e.g. `trackedPackages(repoRoot) -> [{name: "issue-comments", state: "active", from: "v0.14.0", upstreamIssue: "trail-openers/pi-rukas#2020", upstreamFeature: "issueComments", pr: null, until: null}]`
-- e.g. `applyPatch('{"name": "x", "state": "active", "pr": null}', {state: "merged", pr: 2100}) -> '{"name": "x", "state": "merged", "pr": 2100}\n'`
+- e.g. `applyPatch('{\n  "name": "x",\n  "state": "active",\n  "pr": null\n}\n', {state: "merged", pr: 2100}) -> '{\n  "name": "x",\n  "state": "merged",\n  "pr": 2100\n}\n'`
 - e.g. `firstCommitAgeDays(repo, "packages/issue-comments/polyfill.json", new Date("2026-12-04")) -> 30`
 **Review Focus:** `test_unreadable_polyfill_json` (no package, one stderr line naming the file, no throw); `test_states_outside_scope`; `test_patch_keeps_key_order_and_two_space_indent`; `test_age_from_first_commit`.
-**Notes:** `alreadyOpen(open, title)` is an exact title match against the open PR or issue titles. `firstCommitAgeDays` runs `git log --reverse --format=%ad --date=iso-8601 -- <path>` and takes the first line.
+**Notes:** `alreadyOpen(open, title)` is an exact title match against the open PR or issue titles. `firstCommitAgeDays` runs `git log --reverse --format=%ad --date=iso-strict -- <path>` and takes the first line, so the age is a UTC timestamp and the age in days is not a function of the runner's timezone.
 ### T9 gh calls and the entry · Complexity 4 (O-1) · Est. context 48k
 **Kind:** mechanical · **Model:** haiku
-**Owns:** scripts/lib/forge.ts, scripts/track.ts, scripts/test/track.test.ts, scripts/test/workflows.test.ts, .github/workflows/track.yml
+**Owns:** scripts/lib/forge.ts, scripts/track.ts, scripts/README.md, scripts/test/track.test.ts, scripts/test/workflows.test.ts, .github/workflows/track.yml
 **Components:** 2 · **LOC owned:** 150 · **Tests:** fast · **Est. time:** 4 min
 **Consumes:** decidePackage(pkg: PolyfillRecord, up: UpstreamState, contained: string[], ageDays: number, open: OpenTitles) -> TrackAction[] (T7) · containsCommit(status: string) -> boolean (T7) · trackedPackages(root: string) -> PolyfillRecord[] (T8) · applyPatch(content: string, patch: Record<string, unknown>) -> string (T8) · alreadyOpen(open: string[], title: string) -> boolean (T8) · firstCommitAgeDays(repo: string, path: string, now: Date) -> number (T8)
 **Produces:** runTrack(root: string, o: TrackOpts) -> number
-- e.g. `runTrack(root, {dryRun: true, fetchUpstream: () => ({state: "open", mergedPr: null}), listOpen: () => ({prs: [], issues: []}), now: new Date("2026-11-24")}) -> 0` with stdout containing `issue-comments: nothing to do`
+- e.g. `runTrack(root, {dryRun: true, fetchUpstream: () => ({state: "open", mergedPr: null}), listOpen: () => [], now: new Date("2026-11-24")}) -> 0` with stdout containing `issue-comments: nothing to do`
 - e.g. the same with `fetchUpstream: () => ({state: "closed", mergedPr: {number: 2100, mergeCommit: "abc123"}})` -> `0` and the line `issue-comments: would open PR "issue-comments: upstream merged (pi-rukas#2020)"`
 **Review Focus:** `test_dry_run_changes_nothing` (no file written, no shell call, one line per action); `test_idempotent_by_title`; `test_failure_exits_2_without_partial_write` (`polyfill.json` byte-identical); `test_no_tehas_label` (no argument list contains `tehas:`).
 **Notes:** forge.ts shells out with `execFileSync` and a 60s timeout, and owns the git write: `switch -C track/<package>-<kind>`, one `polyfill.json` path staged, `push --force-with-lease`, checkout restored. Cross-repo filing needs `TEHAS_TRACKING_TOKEN` and exits 2 naming it when unset. track.yml: daily at 06:10 UTC plus `workflow_dispatch` with a `dry_run` input defaulting to true, `concurrency: track-polyfills`, `fetch-depth: 0`, `permissions: {contents: write, issues: write, pull-requests: write}`, env `TEHAS_REPO=tehas-app/tehas` and `UPSTREAM_REPO=trail-openers/pi-rukas`, live probe first, then `bun run scripts/track.ts`.
