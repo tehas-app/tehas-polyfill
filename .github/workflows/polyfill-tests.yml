@@ -1,0 +1,30 @@
+name: polyfill tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  polyfills:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4"
+
+      - run: bun install
+
+      - run: bun run test
+
+      - run: bunx tsc --noEmit
+
+      # S6: fail the job when a pi-rukas release lists a feature a polyfill here still says it
+      # provides. This job runs on every push and pull request, so it probes from the checked-in
+      # fixtures: offline, deterministic, and it never reaches upstream. The live probe runs in
+      # track.yml, the job with the schedule and the token.
+      - run: bun run scripts/capability_probe.ts --fixtures scripts/fixtures/capabilities
