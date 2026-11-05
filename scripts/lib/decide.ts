@@ -96,7 +96,9 @@ function retireIssue(pkg: PolyfillRecord, until: string): TrackAction {
     body: [
       `${upstreamRepo(pkg.upstreamIssue)} ${until} ships ${pkg.upstreamIssue} natively, so ${pkg.name} can be retired (PROCESS.md step 7).`,
       upstreamLine(pkg, undefined, until).join("\n"),
-      `Check the native feature against the polyfill's tests on ${until}, move the tehas pi-rukas pin to ${until} or later, then delete ${pkg.path.slice(0, pkg.path.lastIndexOf("/"))}/ here.`,
+      `Check the native feature against the polyfill's tests on ${until}.`,
+      `Read the fact a host can observe today: the base image's /opt/pi-rukas/bin/pi-rukas-headless --capabilities answer lists ${pkg.upstreamFeature}, which is what tehas scripts/polyfills.sh decides expiry from.`,
+      `The image label tehas.rukas.polyfills does not exist in tehas yet, and tehas keeps no version pin for this repository; tehas-app/tehas-polyfill#3 records what tehas does not do today. Then delete ${pkg.path.slice(0, pkg.path.lastIndexOf("/"))}/ here.`,
     ].join("\n\n"),
   };
 }

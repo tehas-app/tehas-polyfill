@@ -45,8 +45,9 @@ PROCESS.md step 5. `host/sandbox/build.sh` installs this package into
 `~/.pi/agent/extensions/issue-comments` and adds `issue-comments@<version>` to the image label
 `tehas.rukas.polyfills`, and it **skips the package when the base image's
 `pi-rukas-headless --capabilities` already lists `issueComments`** — the native feature and the
-polyfill are never both active. tehas pins the release tag with `TEHAS_POLYFILL_VERSION`, and
-`tehas status` shows the polyfills an image carries.
+polyfill are never both active. tehas keeps no `TEHAS_POLYFILL_VERSION` pin for this repository —
+a search of the tehas tree finds no such variable — and tehas-app/tehas-polyfill#3 records what
+tehas does not do yet, while #6 settles the PROCESS.md wording this section follows.
 
 ## What it cannot match
 

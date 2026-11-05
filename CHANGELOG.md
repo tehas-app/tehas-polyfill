@@ -1,7 +1,7 @@
 # Changelog
 
-Versions are tagged (`v0.1.0`) and carry every package in this repository. tehas pins one tag
-with `TEHAS_POLYFILL_VERSION`.
+Versions are tagged (`v0.1.0`) and carry every package in this repository. tehas keeps no version
+pin for this store today; tehas-app/tehas-polyfill#3 records what it does instead.
 
 ## v0.1.0
 
