@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { probeReleases, releaseTags } from "../lib/releases";
+import { probeReleases, releaseTagNames, releaseTags, releasesAtOrAfter } from "../lib/releases";
 import type { PolyfillRecord } from "../lib/types";
 
 // scripts/lib/types.ts (T8) declares PolyfillRecord; these tests build their own
@@ -64,6 +64,46 @@ test("test_non_release_tag_names_ignored", () => {
 test("test_tags_newest_first", () => {
   const tags = ["v0.14.0", "v0.14.50", "v1.0.0", "v0.14.9"];
   expect(releaseTags("v0.14.0", tags, 12)).toEqual(["v1.0.0", "v0.14.50", "v0.14.9", "v0.14.0"]);
+});
+
+test("test_releases_at_or_after_is_uncapped_and_oldest_first", () => {
+  // The containment scan cannot borrow the probe's 12-tag window: the release that carries a merge
+  // commit can be older than the newest 12.
+  const tags = Array.from({ length: 20 }, (_, i) => `v0.14.${i + 1}`);
+  const scanned = releasesAtOrAfter("v0.14.0", tags);
+  expect(scanned.length).toBe(20);
+  expect(scanned[0]).toBe("v0.14.1");
+  expect(scanned[19]).toBe("v0.14.20");
+});
+
+test("test_releases_at_or_after_orders_by_version_not_string", () => {
+  expect(releasesAtOrAfter("v0.14.0", ["v0.14.9", "v0.14.10", "v0.14.0", "v0.13.9", "latest", "v1.0"])).toEqual([
+    "v0.14.0",
+    "v0.14.9",
+    "v0.14.10",
+  ]);
+});
+
+test("test_release_tag_names_drops_drafts_and_keeps_prereleases", () => {
+  // A draft is not a release nobody can install, so it is never a candidate for `until` or for a
+  // probe row. A prerelease is installable and is a release.
+  const releases = [
+    { tag_name: "v0.14.53", draft: false, prerelease: true },
+    { tag_name: "v0.14.52", draft: false, prerelease: false },
+    { tag_name: "v0.15.0", draft: true, prerelease: false },
+  ];
+  expect(releaseTagNames(releases)).toEqual(["v0.14.53", "v0.14.52"]);
+  expect(releaseTagNames([])).toEqual([]);
+  expect(releaseTagNames("not a list")).toEqual([]);
+});
+
+test("test_a_full_releases_page_is_a_failure_not_a_short_list", () => {
+  // gh api returns one page of at most 100 releases. A full page means there is another one, and
+  // the older release that carries the merge commit could be in it.
+  const full = Array.from({ length: 100 }, (_, i) => ({ tag_name: `v0.14.${i}`, draft: false }));
+  expect(() => releaseTagNames(full)).toThrow(/full page/);
+  const partial = Array.from({ length: 99 }, (_, i) => ({ tag_name: `v0.14.${i}`, draft: false }));
+  expect(releaseTagNames(partial)).toHaveLength(99);
 });
 
 // The capabilities source the probe is handed: the file pi-rukas builds

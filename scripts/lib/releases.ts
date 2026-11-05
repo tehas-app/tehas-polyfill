@@ -6,6 +6,9 @@ const TAG = /^v(\d+)\.(\d+)\.(\d+)$/;
 
 type Version = [number, number, number];
 
+/** GitHub's releases endpoint answers with one page of at most this many releases. */
+export const RELEASE_PAGE_SIZE = 100;
+
 function parseTag(tag: string): Version | undefined {
   const m = TAG.exec(tag);
   if (m === null) return undefined;
@@ -17,6 +20,44 @@ function compare(a: Version, b: Version): number {
     if (a[i] !== b[i]) return a[i] - b[i];
   }
   return 0;
+}
+
+/**
+ * Every release tag at or after `from`, oldest first, with no cap: the list the containment scan
+ * walks, because the release that carries a merge commit can be older than anything the probe
+ * speaks about. `releaseTags` is the probe's capped window; this is the tracker's scan.
+ */
+export function releasesAtOrAfter(from: string, tags: string[]): string[] {
+  const fromV = parseTag(from);
+  if (fromV === undefined) return [];
+
+  const candidates: { tag: string; v: Version }[] = [];
+  for (const tag of tags) {
+    const v = parseTag(tag);
+    if (v !== undefined && compare(v, fromV) >= 0) candidates.push({ tag, v });
+  }
+  return candidates.sort((a, b) => compare(a.v, b.v)).map((c) => c.tag);
+}
+
+/**
+ * The tags one releases page lists. A draft is not a release anyone can install, so it is never
+ * listed; a prerelease is a release and is. A page that comes back exactly full means upstream has
+ * more releases than this call fetched and an older one could carry the merge commit, so that is a
+ * failure rather than a shorter list.
+ */
+export function releaseTagNames(releases: unknown): string[] {
+  if (!Array.isArray(releases)) return [];
+  if (releases.length >= RELEASE_PAGE_SIZE) {
+    throw new Error(`the releases call returned a full page of ${releases.length}: upstream has more releases than one page, and an older release could carry the merge commit`);
+  }
+  const tags: string[] = [];
+  for (const release of releases) {
+    if (typeof release !== "object" || release === null) continue;
+    const entry = release as { tag_name?: unknown; draft?: unknown };
+    if (entry.draft === true) continue;
+    if (typeof entry.tag_name === "string") tags.push(entry.tag_name);
+  }
+  return tags;
 }
 
 /**

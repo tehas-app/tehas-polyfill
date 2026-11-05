@@ -6,18 +6,21 @@ import { join } from "node:path";
 
 // The capability probe reads the HEADLESS_FEATURES block of
 // extension/src/headless/capabilities.ts at each release tag (coordinator ruling), so
-// its offline fixtures are excerpts of that file at two tags. These tests keep the
-// excerpts honest: every key a fixture declares must exist at that tag, and the one
-// hand-added entry must say so.
+// its offline fixtures come in two sets: scripts/fixtures/capabilities holds real
+// upstream snapshots and nothing else, and scripts/fixtures/synthetic holds the one
+// hand-written file that declares the polyfilled feature. Only the first set is what
+// the per-PR CI probe reads, so it must never declare that feature.
 
 const ROOT = join(import.meta.dir, "..", "..");
-const FIXTURE_DIR = join(ROOT, "scripts", "fixtures", "capabilities");
+/** Real upstream snapshots only: this is the directory polyfill-tests.yml probes. */
+const CAPABILITY_DIR = join(ROOT, "scripts", "fixtures", "capabilities");
+/** Hand-written, never probed against upstream: the release that must make the probe fail. */
+const SYNTHETIC_DIR = join(ROOT, "scripts", "fixtures", "synthetic");
 const UPSTREAM_REPO = "trail-openers/pi-rukas";
 const CAPABILITIES_FILE = "extension/src/headless/capabilities.ts";
-// pi-rukas#2020 has not landed in any release, so no tag declares this feature; the
-// v0.14.50 fixture declares it anyway so the probe has a release to fail on.
+// pi-rukas#2020 has not landed in any release, so no real tag declares this feature.
 const SYNTHETIC_FEATURE = "issueComments";
-const SYNTHETIC_TAG = "v0.14.50";
+const SYNTHETIC_TAG = "v0.14.99";
 /** This test file, so the two modes below can be run as the jobs run them. */
 const SELF = join(import.meta.dir, "fixtures.test.ts");
 
@@ -29,18 +32,27 @@ function upstreamRequired(): boolean {
   return process.env.TEHAS_REQUIRE_UPSTREAM === "1";
 }
 
+function sourcesIn(dir: string): Record<string, string> {
+  const sources: Record<string, string> = {};
+  for (const file of readdirSync(dir).sort()) {
+    if (!file.endsWith(".ts")) continue;
+    sources[file.slice(0, -".ts".length)] = readFileSync(join(dir, file), "utf8");
+  }
+  return sources;
+}
+
 /**
- * The fixtures as the probe wants them: tag -> the source text of capabilities.ts at
+ * The upstream snapshots as the probe wants them: tag -> the source text of capabilities.ts at
  * that tag. `fixtureSources()["v0.14.0"]` is the text of
  * `scripts/fixtures/capabilities/v0.14.0.ts`, which declares no `issueComments`.
  */
 export function fixtureSources(): Record<string, string> {
-  const sources: Record<string, string> = {};
-  for (const file of readdirSync(FIXTURE_DIR).sort()) {
-    if (!file.endsWith(".ts")) continue;
-    sources[file.slice(0, -".ts".length)] = readFileSync(join(FIXTURE_DIR, file), "utf8");
-  }
-  return sources;
+  return sourcesIn(CAPABILITY_DIR);
+}
+
+/** The hand-written set: the declaring release the probe has to fail on. */
+export function syntheticSources(): Record<string, string> {
+  return sourcesIn(SYNTHETIC_DIR);
 }
 
 /** Code only: line and block comments carry prose and braces the scans below must not see. */
@@ -117,18 +129,20 @@ test("test_fixture_sources_reads_every_fixture", () => {
     expect(featuresBlock(source, false), `${tag} has no HEADLESS_FEATURES block`).toBeDefined();
     expect(featureEntries(source).size).toBeGreaterThan(0);
   }
+  expect(Object.keys(syntheticSources())).toEqual([SYNTHETIC_TAG]);
 });
 
-test("test_only_the_synthetic_entry_says_lists", () => {
-  const sources = fixtureSources();
-  const listing = Object.keys(sources).filter((tag) => featureEntries(sources[tag] ?? "").has(SYNTHETIC_FEATURE));
-  // Exactly one fixture may name the polyfilled feature, and it must be the newer tag.
-  expect(listing).toEqual([SYNTHETIC_TAG]);
-  expect(featureEntries(sources[SYNTHETIC_TAG] ?? "").get(SYNTHETIC_FEATURE)).toBe(true);
-  expect(featureEntries(sources["v0.14.0"] ?? "").has(SYNTHETIC_FEATURE)).toBe(false);
+test("test_only_the_synthetic_fixture_says_lists", () => {
+  // The directory CI probes may not name the polyfilled feature at all: a snapshot that declared
+  // it would fail the per-PR job on every push.
+  const capabilities = fixtureSources();
+  expect(Object.keys(capabilities).filter((tag) => featureEntries(capabilities[tag] ?? "").has(SYNTHETIC_FEATURE))).toEqual([]);
 
-  // The hand-added line has to be marked, or a reader takes it for upstream's own entry.
-  const marker = entryComment(sources[SYNTHETIC_TAG] ?? "", SYNTHETIC_FEATURE);
+  const synthetic = syntheticSources();
+  expect(featureEntries(synthetic[SYNTHETIC_TAG] ?? "").get(SYNTHETIC_FEATURE)).toBe(true);
+
+  // The hand-written file has to say it is hand-written, or a reader takes it for an upstream tag.
+  const marker = entryComment(synthetic[SYNTHETIC_TAG] ?? "", SYNTHETIC_FEATURE);
   expect(marker.length).toBeGreaterThan(0);
   expect(/synthetic/i.test(marker), `${SYNTHETIC_TAG}.ts lists ${SYNTHETIC_FEATURE} without a synthetic marker`).toBe(true);
 });
@@ -137,6 +151,7 @@ test("test_only_the_synthetic_entry_says_lists", () => {
 // TEHAS_REQUIRE_UPSTREAM before any call: offline, no gh is invoked at all. track.yml - the job
 // with the schedule and the token - sets it, and there the check has to answer.
 test("test_fixtures_match_upstream", () => {
+  // Only the snapshots are checked against upstream; the synthetic file is not a tag.
   const sources = fixtureSources();
   if (!upstreamRequired()) {
     console.log(`fixtures.test: TEHAS_REQUIRE_UPSTREAM is not set, skipping the upstream check for ${Object.keys(sources).length} fixtures`);

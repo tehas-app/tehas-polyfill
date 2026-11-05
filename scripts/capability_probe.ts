@@ -11,7 +11,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { probeReleases, releaseTags } from "./lib/releases";
+import { probeReleases, releaseTagNames, releaseTags } from "./lib/releases";
 import { readPackages } from "./lib/state";
 import type { PolyfillRecord, ProbeRow } from "./lib/types";
 
@@ -88,24 +88,23 @@ function parseJson(text: string, what: string): unknown {
   }
 }
 
-function tagNames(releases: unknown): string[] {
-  if (!Array.isArray(releases)) return [];
-  const tags: string[] = [];
-  for (const release of releases) {
-    const tag = typeof release === "object" && release !== null ? (release as { tag_name?: unknown }).tag_name : undefined;
-    if (typeof tag === "string") tags.push(tag);
-  }
-  return tags;
-}
-
-/** The release list: fixture file names offline, `gh` otherwise. */
+/**
+ * The release list: fixture file names offline, `gh` otherwise. A draft is not a release and is
+ * never listed; a prerelease is. A page that comes back exactly full is exit 2, because the next
+ * page could hold a release this probe never saw.
+ */
 function listTags(o: Options): string[] {
   if (o.fixtures !== null) {
     return readdirSync(o.fixtures)
       .filter((f) => f.endsWith(".ts"))
       .map((f) => f.slice(0, -".ts".length));
   }
-  return tagNames(parseJson(gh(["api", `repos/${o.upstreamRepo}/releases?per_page=100`]), "gh release list"));
+  const releases = parseJson(gh(["api", `repos/${o.upstreamRepo}/releases?per_page=100`]), "gh release list");
+  try {
+    return releaseTagNames(releases);
+  } catch (e) {
+    die(e instanceof Error ? e.message : String(e));
+  }
 }
 
 /**

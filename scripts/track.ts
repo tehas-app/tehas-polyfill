@@ -13,14 +13,12 @@ import { fileURLToPath } from "node:url";
 import { containsCommit, decidePackage } from "./lib/decide";
 import { compareStatus, defaultBranch, fetchUpstream, filePr, gitOf, issueRepo, listTags, localRepo, openIssue, openTitles, prBranch, requireTehasToken, tehasRepo } from "./lib/forge";
 import { applyPatch, firstCommitAgeDays, trackedPackages } from "./lib/state";
-import { releaseTags } from "./lib/releases";
+import { releasesAtOrAfter } from "./lib/releases";
 import type { GitRunner, PatchProposal, TrackRunOpts } from "./lib/forge";
 import type { OpenTitles, PolyfillRecord, TrackAction, UpstreamState } from "./lib/types";
 
 const ROOT = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 const SELF = fileURLToPath(import.meta.url);
-/** S6: the release window the tracker can speak about, newest 12 plus the record's own `from`. */
-const MAX_RELEASES = 12;
 const USAGE = "usage: bun run scripts/track.ts [--dry-run]";
 
 function say(line: string): void {
@@ -64,17 +62,17 @@ function filed(pkg: PolyfillRecord, action: TrackAction): string {
 }
 
 /**
- * The release tags that already carry `mergeCommit`, oldest first: the first of them is what
- * `decidePackage` makes the record's `until` (spec S7).
+ * The release tags that already carry `mergeCommit`: every upstream release at or after the
+ * record's `from`, oldest first, with no cap - the newest-12 window is the probe's, not the
+ * tracker's, and the release that carries the commit can be older than it. The scan stops at the
+ * first hit, which is the tag `decidePackage` makes the record's `until` (spec S7).
  */
 function containingTags(root: string, pkg: PolyfillRecord, mergeCommit: string, listTagsOf: (repo: string) => string[], compareTag: (tag: string, sha: string) => string): string[] {
   const repo = issueRepo(pkg.upstreamIssue);
-  const tags = releaseTags(pkg.from, listTagsOf(repo), MAX_RELEASES).reverse();
-  const contained: string[] = [];
-  for (const tag of tags) {
-    if (containsCommit(compareTag(tag, mergeCommit))) contained.push(tag);
+  for (const tag of releasesAtOrAfter(pkg.from, listTagsOf(repo))) {
+    if (containsCommit(compareTag(tag, mergeCommit))) return [tag];
   }
-  return contained;
+  return [];
 }
 
 /** The bytes one action's patch produces, on the branch that action's PR is opened from. */
@@ -82,7 +80,7 @@ function proposalOf(root: string, world: World, base: string, pkg: PolyfillRecor
   const patch = action.patch;
   if (patch === undefined) throw new Error(`${action.kind}: a pull request action carries no patch to write`);
   return {
-    repo: world.here,
+    repo: world.here(),
     base,
     branch: prBranch(pkg.name, action.kind),
     path: pkg.path,
@@ -93,24 +91,48 @@ function proposalOf(root: string, world: World, base: string, pkg: PolyfillRecor
 }
 
 /**
+ * The real open-titles read. A run that reaches tehas for real reaches it with the cross-repo
+ * credential: a token that cannot see the repository must not answer "nothing open" and let a
+ * duplicate through. A dry run files nothing, so it may read with whatever credential `gh` has.
+ */
+function openTitlesReal(root: string, o: TrackRunOpts): (repo: string, kind: "pr" | "issue") => string[] {
+  return (repo, kind) => openTitles(root, repo, kind, repo === tehasRepo() && !o.dryRun ? { GH_TOKEN: requireTehasToken() } : undefined);
+}
+
+/** One read per repository and kind per run, whichever source answers it. */
+function memoized(source: (repo: string, kind: "pr" | "issue") => string[]): (repo: string, kind: "pr" | "issue") => string[] {
+  const cache = new Map<string, string[]>();
+  return (repo, kind) => {
+    const key = `${repo}\u0000${kind}`;
+    const cached = cache.get(key);
+    if (cached !== undefined) return cached;
+    const titles = source(repo, kind);
+    cache.set(key, titles);
+    return titles;
+  };
+}
+
+/**
  * One tracking run. Every seam in `TrackOpts` plus the filing, release-list and git seams forge.ts
- * declares is injectable, which is what keeps the tests offline; a run with no seam supplied and
- * no `--dry-run` makes the real `gh` and `git` calls.
+ * declares is injectable, which is what keeps the tests offline; a run with no seam supplied and no
+ * `--dry-run` makes the real `gh` and `git` calls.
  */
 export function runTrack(root: string, o: TrackRunOpts): number {
   const now = o.now ?? new Date();
-  const here = localRepo();
   const tehas = tehasRepo();
 
   const git = gitOf(root, o);
+  // The repository the tracker runs in, named only when a call needs it: a reminder-only run never
+  // opens a PR and never asks.
+  const here = () => localRepo(git);
   const fetch = o.fetchUpstream ?? ((issue: string) => fetchUpstream(root, issueRepo(issue), issue));
-  const listOpen = o.listOpen ?? ((repo: string) => ({ prs: openTitles(root, repo, "pr"), issues: openTitles(root, repo, "issue") }));
+  const readOpen = memoized(o.listOpen ?? openTitlesReal(root, o));
   const listTagsOf = o.listTags ?? ((repo: string) => listTags(root, repo));
   const fileIssue = o.openIssue ?? ((repo: string, title: string, body: string) => openIssue(root, repo, title, body));
 
   for (const pkg of trackedPackages(root)) {
     try {
-      trackPackage(root, pkg, o, { now, here, tehas, git, fetch, listOpen, listTagsOf, fileIssue });
+      trackPackage(root, pkg, o, { now, here, tehas, git, fetch, readOpen, listTagsOf, fileIssue });
     } catch (error) {
       // A failed call is exit 2. forge.ts put the working tree back, and this package's patch is on
       // no branch: the PR that would have carried it was never opened.
@@ -124,11 +146,11 @@ export function runTrack(root: string, o: TrackRunOpts): number {
 /** The world one run reaches: the seams, resolved to either an injected one or the real call. */
 interface World {
   now: Date;
-  here: string;
+  here: () => string;
   tehas: string;
   git: GitRunner;
   fetch: (issue: string) => UpstreamState;
-  listOpen: (repo: string) => OpenTitles;
+  readOpen: (repo: string, kind: "pr" | "issue") => string[];
   listTagsOf: (repo: string) => string[];
   fileIssue: (repo: string, title: string, body: string) => void;
 }
@@ -139,8 +161,17 @@ function trackPackage(root: string, pkg: PolyfillRecord, o: TrackRunOpts, world:
   const compareTag = o.compare ?? ((tag: string, sha: string) => compareStatus(root, upstream, tag, sha));
 
   const up = world.fetch(pkg.upstreamIssue);
-  // Open PRs are this repository's; open issues are tehas'. Both gate the same title check.
-  const open: OpenTitles = { prs: world.listOpen(world.here).prs, issues: world.listOpen(world.tehas).issues };
+  // Open PRs are this repository's, open issues are tehas'. Both gate the same title check, and
+  // both are read on demand: `decidePackage` only looks at the half an action files into, so a run
+  // that files a PR never lists tehas issues and a reminder never lists PRs.
+  const open: OpenTitles = {
+    get prs() {
+      return world.readOpen(world.here(), "pr");
+    },
+    get issues() {
+      return world.readOpen(world.tehas, "issue");
+    },
+  };
   const ageDays = firstCommitAgeDays(root, pkg.path, world.now);
 
   // Only a `merged` record still waiting on a release needs the release list (spec S7).

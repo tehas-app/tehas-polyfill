@@ -39,12 +39,14 @@ export function issueCommentsExtension(pi: ExtensionAPI): void {
 
   pi.on("before_agent_start", (event: BeforeAgentStartEvent): BeforeAgentStartEventResult | undefined => {
     if (event.messageType !== "user" || attempted) return undefined;
-    // S4: the latch is set on the first user run, before the blob is read, so a read that fails
-    // writes its one line for the session instead of one for every turn.
-    attempted = true;
 
-    // Nothing configured: the session is not a polyfilled one, so say nothing at all.
+    // Nothing configured: the session is not a polyfilled one, so it says nothing and keeps its
+    // one attempt for the session. The latch is set only once there is something to read.
     if (imageDirs(process.env).length === 0) return undefined;
+
+    // S4: the latch is set before the blob is read, so a read that fails writes its one line for
+    // the session instead of one for every turn.
+    attempted = true;
 
     try {
       const outcome = collectComments(process.env);

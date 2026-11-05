@@ -5,6 +5,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { releaseTagNames } from "./releases";
 import type { OpenTitles, TrackOpts, UpstreamState } from "./types";
 
 const GH_TIMEOUT_MS = 60_000;
@@ -68,11 +69,33 @@ export function issueNumber(upstreamIssue: string): string {
 }
 
 /**
- * The repository the tracker opens its PRs on: the one it is running in. Read when asked, so a
- * run can name its repository without re-importing the module.
+ * The repository the tracker opens its PRs on: `GITHUB_REPOSITORY` first, because that is what a
+ * GitHub Actions run names, then the checkout's own origin remote. An unresolvable repository is a
+ * named failure, never a guess from the directory the process happens to stand in.
  */
-export function localRepo(): string {
-  return process.env.GITHUB_REPOSITORY ?? "";
+export function localRepo(git: GitRunner): string {
+  const fromEnv = process.env.GITHUB_REPOSITORY ?? "";
+  if (fromEnv !== "") return fromEnv;
+
+  let url = "";
+  try {
+    url = git(remoteUrlArgs());
+  } catch {
+    url = "";
+  }
+  const repo = remoteRepo(url);
+  if (repo === undefined) throw new Error("cannot name the repository the tracker runs in: set GITHUB_REPOSITORY or configure an origin remote");
+  return repo;
+}
+
+export function remoteUrlArgs(): string[] {
+  return ["remote", "get-url", "origin"];
+}
+
+/** `https://github.com/acme/polyfills.git` and `git@github.com:acme/polyfills.git` -> `acme/polyfills`. */
+function remoteRepo(url: string): string | undefined {
+  const m = /[:/]([^/:]+\/[^/]+?)(?:\.git)?\/?$/.exec(url.trim());
+  return m === null ? undefined : m[1];
 }
 
 export function tehasRepo(): string {
@@ -133,17 +156,6 @@ export function listOpenArgs(repo: string, kind: "pr" | "issue"): string[] {
   return repo === "" ? args : [...args, "--repo", repo];
 }
 
-/**
- * The token a read on tehas runs with: the cross-repo credential when it is configured, otherwise
- * whatever credential `gh` already has. A read has to work in a dry run, which files nothing and
- * may have no secret; a filing never falls back (see `openIssue`).
- */
-function readEnv(repo: string): Record<string, string> | undefined {
-  if (repo !== tehasRepo()) return undefined;
-  const token = tehasToken();
-  return token === undefined ? undefined : { GH_TOKEN: token };
-}
-
 function runGh(cwd: string, args: string[], env?: Record<string, string>): string {
   try {
     return execFileSync("gh", args, {
@@ -187,18 +199,23 @@ export function fetchUpstream(root: string, repo: string, upstreamIssue: string)
   return { state, mergedPr: { number: Number.isInteger(number) ? number : 0, mergeCommit } };
 }
 
-/** The titles already open on one side, so nothing is filed twice (spec S7). */
-export function openTitles(root: string, repo: string, kind: "pr" | "issue"): string[] {
-  const listed = parseJson(runGh(root, listOpenArgs(repo, kind), readEnv(repo)), `gh ${kind} list`);
+/**
+ * The titles already open on one side, so nothing is filed twice (spec S7). `env` is the credential
+ * the call runs with: track.ts supplies the tehas one whenever a real run reaches tehas, so a token
+ * that cannot see the repository never answers "nothing open".
+ */
+export function openTitles(root: string, repo: string, kind: "pr" | "issue", env?: Record<string, string>): string[] {
+  const listed = parseJson(runGh(root, listOpenArgs(repo, kind), env), `gh ${kind} list`);
   if (!Array.isArray(listed)) return [];
   return listed.map((row) => field(row, "title")).filter((title): title is string => typeof title === "string");
 }
 
-/** pi-rukas release tags, newest first as GitHub lists them. */
+/**
+ * pi-rukas release tags, newest first as GitHub lists them. A draft is not a release; a prerelease
+ * is. A full page is a failure: an older release could carry the merge commit (spec S7).
+ */
 export function listTags(root: string, repo: string): string[] {
-  const releases = parseJson(runGh(root, listTagsArgs(repo)), "gh release list");
-  if (!Array.isArray(releases)) return [];
-  return releases.map((release) => field(release, "tag_name")).filter((tag): tag is string => typeof tag === "string");
+  return releaseTagNames(parseJson(runGh(root, listTagsArgs(repo)), "gh release list"));
 }
 
 /** `gh api .../compare/<tag>...<sha>` status: `behind` or `identical` means the tag carries the commit. */

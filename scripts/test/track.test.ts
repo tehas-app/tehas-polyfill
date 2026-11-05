@@ -17,6 +17,8 @@ import {
   issueArgs,
   listOpenArgs,
   listTagsArgs,
+  listTags,
+  localRepo,
   openIssueArgs,
   openPrArgs,
   prBranch,
@@ -24,11 +26,13 @@ import {
   requireTehasToken,
   switchBackArgs,
   type Filed,
+  type GitRunner,
   type PatchProposal,
 } from "../lib/forge";
 import { applyPatch } from "../lib/state";
 import { runTrack } from "../track";
 import type { TrackRunOpts } from "../lib/forge";
+import type { OpenTitles } from "../lib/types";
 
 const RETIRE_TITLE = "Retire polyfill issue-comments: pi-rukas v0.15.0 ships trail-openers/pi-rukas#2020";
 const MERGED_TITLE = "issue-comments: upstream merged (pi-rukas#2020)";
@@ -41,6 +45,10 @@ const LOCAL = "tehas-app/tehas-polyfill";
 const RECORD = join("packages", "issue-comments", "polyfill.json");
 /** The branch a fixture checkout is on, and the branch a PR is proposed against. */
 const BASE = "main";
+
+// Every run here names the repository it runs in, the way a GitHub Actions run does. The tests
+// that check what happens when it cannot name one take the variable away for the length of a run.
+process.env.GITHUB_REPOSITORY = LOCAL;
 
 const madeDirs: string[] = [];
 
@@ -137,7 +145,7 @@ function gitFailingAt(captured: Captured, failAt: string): (args: string[]) => s
 const closedMerged = () => ({ state: "closed" as const, mergedPr: { number: 2100, mergeCommit: "abc123" } });
 const closedUnmerged = () => ({ state: "closed" as const, mergedPr: null });
 const openUpstream = () => ({ state: "open" as const, mergedPr: null });
-const nothingOpen = () => ({ prs: [], issues: [] });
+const nothingOpen = openBoth({ prs: [], issues: [] });
 
 /** stdout of a run, so the printed plan can be asserted without a console. */
 function outputOf(fn: () => unknown): string {
@@ -213,6 +221,23 @@ function withoutTehasToken(fn: () => void): void {
   }
 }
 
+/** A run outside a GitHub Actions checkout: `GITHUB_REPOSITORY` is not there to lean on. */
+function withoutLocalRepo(fn: () => void): void {
+  const saved = process.env.GITHUB_REPOSITORY;
+  delete process.env.GITHUB_REPOSITORY;
+  try {
+    fn();
+  } finally {
+    if (saved === undefined) delete process.env.GITHUB_REPOSITORY;
+    else process.env.GITHUB_REPOSITORY = saved;
+  }
+}
+
+/** The titles a run sees, as the seam now reports them: one repository and kind at a time. */
+function openBoth(titles: OpenTitles): (repo: string, kind: "pr" | "issue") => string[] {
+  return (_repo, kind) => (kind === "pr" ? titles.prs : titles.issues);
+}
+
 function recordText(root: string, name = "issue-comments"): string {
   return readFileSync(join(root, "packages", name, "polyfill.json"), "utf8");
 }
@@ -286,7 +311,7 @@ test("test_idempotent_by_title: a title that is already open files nothing", () 
 
   let code = 0;
   const out = outputOf(() => {
-    code = runTrack(root, seams(captured, { dryRun: false, fetchUpstream: closedMerged, listOpen: () => ({ prs: [MERGED_TITLE], issues: [] }) }));
+    code = runTrack(root, seams(captured, { dryRun: false, fetchUpstream: closedMerged, listOpen: openBoth({ prs: [MERGED_TITLE], issues: [] }) }));
   });
 
   expect(code).toBe(0);
@@ -317,7 +342,7 @@ test("a filed title is not filed again by the next run", () => {
   // The next run sees that PR open and files nothing, so it branches nothing either.
   const second = capture();
   const out = outputOf(() => {
-    expect(runTrack(root, seams(second, { dryRun: false, fetchUpstream: closedMerged, listOpen: () => ({ prs: [MERGED_TITLE], issues: [] }) }))).toBe(0);
+    expect(runTrack(root, seams(second, { dryRun: false, fetchUpstream: closedMerged, listOpen: openBoth({ prs: [MERGED_TITLE], issues: [] }) }))).toBe(0);
   });
   expect(second.prs).toEqual([]);
   expect(second.git).toEqual([]);
@@ -601,7 +626,7 @@ test("the reminder title does not move with the record's age, so the next day fi
   const third = capture();
   withTehasToken(() => {
     outputOf(() => {
-      expect(runTrack(root, seams(third, { dryRun: false, fetchUpstream: openUpstream, listOpen: () => ({ prs: [], issues: [REMIND_TITLE] }), now: new Date("2026-11-25T12:00:00Z") }))).toBe(0);
+      expect(runTrack(root, seams(third, { dryRun: false, fetchUpstream: openUpstream, listOpen: openBoth({ prs: [], issues: [REMIND_TITLE] }), now: new Date("2026-11-25T12:00:00Z") }))).toBe(0);
     });
   });
   expect(third.issues).toEqual([]);
@@ -785,10 +810,223 @@ test("an already-open reminder title files nothing", () => {
 
   let code = 0;
   const out = outputOf(() => {
-    code = runTrack(root, seams(captured, { dryRun: false, fetchUpstream: openUpstream, listOpen: () => ({ prs: [], issues: [REMIND_TITLE] }) }));
+    code = runTrack(root, seams(captured, { dryRun: false, fetchUpstream: openUpstream, listOpen: openBoth({ prs: [], issues: [REMIND_TITLE] }) }));
   });
 
   expect(code).toBe(0);
   expect(captured.issues).toEqual([]);
   expect(out).toContain("issue-comments: nothing to do");
+});
+
+test("test_containment_is_not_capped_at_the_probe_window: an old containing release is still found", () => {
+  const root = fixtureRoot([mergedRecord]);
+  const captured = capture();
+  // Twenty upstream releases, newest first as GitHub lists them. The merge commit landed in the
+  // second oldest, well outside the newest 12 the probe speaks about.
+  const tags = Array.from({ length: 20 }, (_, i) => `v0.14.${20 - i}`);
+
+  let code = 0;
+  withTehasToken(() => {
+    inLocalRepo(() => {
+      outputOf(() => {
+        code = runTrack(root, seams(captured, {
+          dryRun: false,
+          fetchUpstream: closedMerged,
+          listOpen: nothingOpen,
+          listTags: () => tags,
+          compare: (tag, sha) => {
+            captured.compares.push([tag, sha]);
+            return tag === "v0.14.2" ? "behind" : "ahead";
+          },
+        }));
+      });
+    });
+  });
+
+  expect(code).toBe(0);
+  // Oldest first, and the scan stops at the first tag that carries the commit.
+  expect(captured.compares.map((c) => c[0])).toEqual(["v0.14.1", "v0.14.2"]);
+  expect(captured.prs.map((p) => p.title)).toEqual(["issue-comments: upstream released (pi-rukas v0.14.2)"]);
+  expect(captured.issues.map((i) => i.title)).toEqual(["Retire polyfill issue-comments: pi-rukas v0.14.2 ships trail-openers/pi-rukas#2020"]);
+  expect(JSON.parse(captured.prs[0].content).until).toBe("v0.14.2");
+});
+
+test("the tag the tracker chose does not move when newer releases land", () => {
+  const older = ["v0.14.0", "v0.14.50", "v0.15.0"];
+  // Fifteen newer releases: a newest-12 window would not contain v0.15.0 at all.
+  const newer = [...Array.from({ length: 15 }, (_, i) => `v0.16.${15 - i}`), ...older];
+  const compare = (tag: string) => (tag === "v0.15.0" ? "behind" : "ahead");
+
+  const titles: string[][] = [];
+  for (const tags of [older, newer]) {
+    const root = fixtureRoot([mergedRecord]);
+    const captured = capture();
+    withTehasToken(() => {
+      inLocalRepo(() => {
+        outputOf(() => {
+          expect(runTrack(root, seams(captured, { dryRun: false, fetchUpstream: closedMerged, listOpen: nothingOpen, listTags: () => tags, compare }))).toBe(0);
+        });
+      });
+    });
+    titles.push(captured.prs.map((p) => p.title));
+  }
+
+  expect(titles[0]).toEqual([RELEASED_TITLE]);
+  expect(titles[1]).toEqual(titles[0]);
+});
+
+test("the PR and the issue body name the tag the tracker chose", () => {
+  // A prerelease can become a record's `until`; naming the tag in both bodies is how a human sees it.
+  const root = fixtureRoot([mergedRecord]);
+  const captured = capture();
+  withTehasToken(() => {
+    inLocalRepo(() => {
+      outputOf(() => {
+        expect(runTrack(root, seams(captured, { dryRun: false, fetchUpstream: closedMerged, listOpen: nothingOpen }))).toBe(0);
+      });
+    });
+  });
+
+  expect(captured.prs[0].body).toContain("v0.15.0");
+  expect(captured.issues[0].body).toContain("v0.15.0");
+});
+
+test("test_open_titles_are_read_once_per_half_actually_used", () => {
+  const runs: { here: string; tehas: string; used: string[][] }[] = [];
+
+  for (const [name, setup] of [
+    ["pr only", { root: () => fixtureRoot([activeRecord]), upstream: closedMerged }],
+    ["issue only", { root: () => agedRoot("2026-08-26T12:00:00 +0000"), upstream: openUpstream }],
+  ] as const) {
+    const root = setup.root();
+    const captured = capture();
+    const used: string[][] = [];
+    const listOpen = (repo: string, kind: "pr" | "issue") => {
+      used.push([repo, kind]);
+      return [];
+    };
+    withTehasToken(() => {
+      inLocalRepo(() => {
+        outputOf(() => {
+          expect(runTrack(root, seams(captured, { dryRun: false, fetchUpstream: setup.upstream, listOpen }))).toBe(0);
+        });
+      });
+    });
+    runs.push({ here: LOCAL, tehas: "tehas-app/tehas", used });
+  }
+
+  // A run that files a PR here never lists tehas issues; a reminder never lists PRs.
+  expect(runs[0]!.used).toEqual([[runs[0]!.here, "pr"]]);
+  expect(runs[1]!.used).toEqual([[runs[1]!.tehas, "issue"]]);
+});
+
+test("test_open_titles_are_memoized_per_repository_and_kind", () => {
+  const root = fixtureRoot([recordOf("aaa", "merged", { pr: 2100 }), recordOf("bbb", "merged", { pr: 2101 })]);
+  const captured = capture();
+  const used: string[][] = [];
+
+  withTehasToken(() => {
+    inLocalRepo(() => {
+      outputOf(() => {
+        expect(runTrack(root, seams(captured, { dryRun: false, fetchUpstream: closedMerged, listOpen: (repo, kind) => {
+          used.push([repo, kind]);
+          return [];
+        } }))).toBe(0);
+      });
+    });
+  });
+
+  // Two packages, one run: each half is read once, not once per package.
+  expect(captured.prs).toHaveLength(2);
+  expect(used.filter((c) => c[1] === "pr")).toEqual([[LOCAL, "pr"]]);
+  expect(used.filter((c) => c[1] === "issue")).toEqual([["tehas-app/tehas", "issue"]]);
+});
+
+test("test_local_repo_names_its_own_repository_and_fails_when_it_cannot", () => {
+  const gitOf = (urls: Record<string, string>): GitRunner => (args) => {
+    const url = urls[args.join(" ")];
+    if (url === undefined) throw new Error(`git ${args.join(" ")} failed: fatal: no such remote: origin`);
+    return url;
+  };
+  const https = gitOf({ "remote get-url origin": "https://github.com/acme/polyfills.git\n" });
+  const ssh = gitOf({ "remote get-url origin": "git@github.com:acme/polyfills.git\n" });
+
+  // The Actions variable first, and no git call at all when it is there.
+  inLocalRepo(() => expect(localRepo(gitOf({}))).toBe(LOCAL));
+  withoutLocalRepo(() => expect(localRepo(https)).toBe("acme/polyfills"));
+  withoutLocalRepo(() => expect(localRepo(ssh)).toBe("acme/polyfills"));
+  // Unresolvable is a named failure, never "the repository I happen to be standing in".
+  withoutLocalRepo(() => expect(() => localRepo(gitOf({}))).toThrow(/GITHUB_REPOSITORY/));
+});
+
+test("a run that cannot name its repository exits 2 and files nothing", () => {
+  const root = fixtureRoot([activeRecord]);
+  const before = recordText(root);
+  const captured = capture();
+
+  let code = 0;
+  const lines = stderrLines(() => {
+    withoutLocalRepo(() => {
+      outputOf(() => {
+        code = runTrack(root, seams(captured, { dryRun: false, fetchUpstream: closedMerged, listOpen: nothingOpen }));
+      });
+    });
+  });
+
+  expect(code).toBe(2);
+  expect(lines.some((line) => line.includes("GITHUB_REPOSITORY"))).toBe(true);
+  expect(captured.prs).toEqual([]);
+  // Only the attempt to name the repository: no branch was created, staged, committed or pushed.
+  expect(captured.git.map((args) => args[0])).toEqual(["remote"]);
+  expect(recordText(root)).toBe(before);
+});
+
+test("test_a_real_run_reaches_tehas_only_with_its_own_credential", () => {
+  // A decision that only files a PR here never reaches tehas, so it needs no tehas credential.
+  const prRoot = fixtureRoot([activeRecord]);
+  const prs = capture();
+  let prCode = 0;
+  withoutTehasToken(() => {
+    inLocalRepo(() => {
+      outputOf(() => {
+        prCode = runTrack(prRoot, seams(prs, { dryRun: false, fetchUpstream: closedMerged, listOpen: nothingOpen }));
+      });
+    });
+  });
+  expect(prCode).toBe(0);
+  expect(prs.prs).toHaveLength(1);
+
+  // A decision that reads or files on tehas without the credential is exit 2, naming it, and it
+  // files nothing - not even the PR it would have opened first.
+  const tehasRoot = fixtureRoot([activeRecord]);
+  const before = recordText(tehasRoot);
+  const captured = capture();
+  let code = 0;
+  const lines = stderrLines(() => {
+    withoutTehasToken(() => {
+      inLocalRepo(() => {
+        outputOf(() => {
+          code = runTrack(tehasRoot, seams(captured, { dryRun: false, fetchUpstream: closedUnmerged, listOpen: nothingOpen }));
+        });
+      });
+    });
+  });
+  expect(code).toBe(2);
+  expect(lines.some((line) => line.includes("TEHAS_TRACKING_TOKEN"))).toBe(true);
+  expect(captured.prs).toEqual([]);
+  expect(captured.git).toEqual([]);
+  expect(recordText(tehasRoot)).toBe(before);
+
+  // A dry run may read with whatever credential gh already has.
+  const dry = capture();
+  let dryCode = 0;
+  withoutTehasToken(() => {
+    inLocalRepo(() => {
+      outputOf(() => {
+        dryCode = runTrack(fixtureRoot([activeRecord]), seams(dry, { dryRun: true, fetchUpstream: closedUnmerged, listOpen: nothingOpen }));
+      });
+    });
+  });
+  expect(dryCode).toBe(0);
+  expect(dry.issues).toEqual([]);
 });

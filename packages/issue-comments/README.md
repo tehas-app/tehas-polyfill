@@ -16,8 +16,9 @@ A directory with no `manifest.json`, or a manifest with no `comments` entry, is 
 rather than a failed read: the session is left as it was found and nothing is written. A manifest
 that is there but cannot be parsed is a failure — the host wrote a broken file — and so is a
 `comments` entry whose blob fails the checks: either one is not used, and the extension writes its
-one line for the session (the latch is set before the read, so a blob that never reads is not
-retried on every turn). A directory with nothing to read never hides a corrupt pair: the reason the
+one line for the session (the latch is set once there is something to read, so a session with
+nothing configured does not burn its attempt, and a blob that never reads is not retried on every
+turn). A directory with nothing to read never hides a corrupt pair: the reason the
 extension reports is the one from a directory that named a comments blob. It is the only writer of
 these lines, so the two-manifests case names the directories itself:
 
@@ -53,3 +54,7 @@ polyfill are never both active. tehas pins the release tag with `TEHAS_POLYFILL_
   runs.
 - There is no `comments` field in the runner's result, because the extension runs in the child,
   not in the runner process.
+- A resumed or forked session is a new session to this polyfill: `session_start` resets the latch,
+  so the comments are injected once more, and anything the earlier session already saw is injected
+  again. pi-rukas' native feature keeps one comment set for the whole lineage; this package cannot
+  see the lineage at all.

@@ -99,6 +99,30 @@ describe("issueCommentsExtension", () => {
     expect(lines).toEqual([]);
   });
 
+  test("test_nothing_configured_does_not_burn_the_attempt", () => {
+    // S3: an environment with no attachment directories is not a polyfilled session. It says
+    // nothing, and it does not consume the session's one attempt: once the host names a directory,
+    // the same installed extension still reads.
+    const dir = newDir("late-dirs");
+    writeFixture({ dir, manifest: { issue: 42, comments: { file: "comments.json" } }, blobItems: [item({})], until: UNTIL });
+    const pi = installed();
+
+    const quiet = withDirs([], () => {
+      for (let turn = 0; turn < 3; turn += 1) {
+        expect(pi.fire("before_agent_start", userEvent())).toBeUndefined();
+      }
+    });
+    expect(quiet).toEqual([]);
+
+    const lines = withDirs([dir], () => {
+      const fired = pi.fire("before_agent_start", userEvent()) as { message?: { customType: string } } | undefined;
+      expect(fired?.message?.customType).toBe("issue-comments");
+      // The latch still latches: the attempt this session is now spending is spent.
+      expect(pi.fire("before_agent_start", userEvent())).toBeUndefined();
+    });
+    expect(lines.length).toBe(1);
+  });
+
   test("test_once_per_session", () => {
     const dir = newDir("once");
     writeFixture({ dir, manifest: { issue: 42, comments: { file: "comments.json" } }, blobItems: [item({})], until: UNTIL });

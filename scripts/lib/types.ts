@@ -42,11 +42,15 @@ export interface TrackAction {
   patch?: Record<string, unknown>;
 }
 
-/** How `runTrack` reaches the world. Every seam is injectable so the tracker's tests stay offline. */
+/**
+ * How `runTrack` reaches the world. Every seam is injectable so the tracker's tests stay offline.
+ * `listOpen` is asked for one repository and kind at a time, because a run only reads the half it
+ * files on.
+ */
 export interface TrackOpts {
   dryRun: boolean;
   fetchUpstream?: (issue: string) => UpstreamState;
-  listOpen?: (repo: string) => OpenTitles;
+  listOpen?: (repo: string, kind: "pr" | "issue") => string[];
   compare?: (tag: string, sha: string) => string;
   now?: Date;
 }
