@@ -39,6 +39,11 @@ bun run scripts/track.ts [--dry-run]
   a dry run is not offline, it is only non-filing.
 - Idempotence reads open titles with `--limit 200`, because `gh pr list` and `gh issue list` stop at
   30 by default and an older proposal would otherwise look unfilable-by-title in name only.
+- The commit step names its own committer identity: `-c user.name=<name> -c user.email=<email>`,
+  taken from `TEHAS_TRACKER_GIT_NAME` and `TEHAS_TRACKER_GIT_EMAIL` when they are set, and otherwise
+  the defaults `tehas-polyfill-tracker` and `tehas-polyfill-tracker@users.noreply.github.com`. A
+  real run must not depend on the runner having a global git config: without an identity, `git
+  commit` is where the run dies.
 - Only a decision that **files an issue on `TEHAS_REPO`** is a cross-repo call, and only that one
   needs `TEHAS_TRACKING_TOKEN`: a decision that files a PR in this repository runs on the workflow's
   own token. A run that cannot file on tehas exits 2 naming that variable and files **nothing**, not
