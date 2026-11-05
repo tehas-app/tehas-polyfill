@@ -45,7 +45,7 @@ A pi extension, so pi-rukas forwards it to the child sessions it spawns.
 
 ## S4 The message
 
-`before_agent_start`, only when `messageType === "user"`, once per session — the latch is set once the environment has something to read and before the blob is read, so a session with no attachment directories says nothing and does not burn its attempt, while a read that fails writes its line once and is not retried on a later turn. One injected message, `customType: "issue-comments"`, `display: true`, with the rendering:
+`before_agent_start`, only when `messageType === "user"`, once per session. The latch is set as soon as at least one attachments directory is named, and before the blob is read: a session with no `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` says nothing and keeps its attempt, while a named directory that turns out to have nothing to read spends the attempt just as a failed read does — one line, no retry on a later turn. One injected message, `customType: "issue-comments"`, `display: true`, with the rendering:
 
 ```
 ## Comments on this issue and its pull requests
