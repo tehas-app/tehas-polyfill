@@ -135,7 +135,7 @@ function seams(captured: Captured, o: Partial<TrackRunOpts> = {}): TrackRunOpts 
 function gitFailingAt(captured: Captured, failAt: string): (args: string[]) => string {
   return (args) => {
     captured.git.push(args);
-    if (args[0] === failAt) throw new Error(`git ${args.join(" ")} failed: the step named ${failAt} is the one that fails`);
+    if (gitStep(args) === failAt) throw new Error(`git ${args.join(" ")} failed: the step named ${failAt} is the one that fails`);
     return `${BASE}\n`;
   };
 }
@@ -216,6 +216,32 @@ function withoutTehasToken(fn: () => void): void {
   } finally {
     if (saved === undefined) delete process.env.TEHAS_TRACKING_TOKEN;
     else process.env.TEHAS_TRACKING_TOKEN = saved;
+  }
+}
+
+/**
+ * The git subcommand a call runs: the first argument after any `-c <setting>` pair. forge.ts names
+ * its own committer identity, so a git call's verb is not always its first token.
+ */
+function gitStep(args: string[]): string {
+  let i = 0;
+  while (args[i] === "-c") i += 2;
+  return args[i] ?? "";
+}
+
+/** The tracker's commit identity is settable; the tests set it to prove that it is. */
+function withTrackerIdentity(name: string, email: string, fn: () => void): void {
+  const savedName = process.env.TEHAS_TRACKER_GIT_NAME;
+  const savedEmail = process.env.TEHAS_TRACKER_GIT_EMAIL;
+  process.env.TEHAS_TRACKER_GIT_NAME = name;
+  process.env.TEHAS_TRACKER_GIT_EMAIL = email;
+  try {
+    fn();
+  } finally {
+    if (savedName === undefined) delete process.env.TEHAS_TRACKER_GIT_NAME;
+    else process.env.TEHAS_TRACKER_GIT_NAME = savedName;
+    if (savedEmail === undefined) delete process.env.TEHAS_TRACKER_GIT_EMAIL;
+    else process.env.TEHAS_TRACKER_GIT_EMAIL = savedEmail;
   }
 }
 
@@ -393,6 +419,34 @@ test("test_pr_branch_name_per_action: one branch per action, named for the packa
   expect(declined.prs.map((p) => p.branch)).toEqual(["track/issue-comments-declined"]);
 });
 
+test("test_commit_names_its_own_identity: a fresh checkout has no committer to inherit", () => {
+  // A runner with no global git config has no committer identity, and `git commit` is where a
+  // tracker run dies. The commit step names its own, so a real run never depends on the machine.
+  expect(commitArgs("track/issue-comments-merged", MERGED_TITLE)).toEqual([
+    "-c",
+    "user.name=tehas-polyfill-tracker",
+    "-c",
+    "user.email=tehas-polyfill-tracker@users.noreply.github.com",
+    "commit",
+    "-m",
+    `track/issue-comments-merged: ${MERGED_TITLE}`,
+  ]);
+});
+
+test("test_the_commit_identity_comes_from_the_environment_when_it_is_given", () => {
+  withTrackerIdentity("tehas-ci", "tehas-ci@example.com", () => {
+    expect(commitArgs("track/issue-comments-merged", MERGED_TITLE)).toEqual([
+      "-c",
+      "user.name=tehas-ci",
+      "-c",
+      "user.email=tehas-ci@example.com",
+      "commit",
+      "-m",
+      `track/issue-comments-merged: ${MERGED_TITLE}`,
+    ]);
+  });
+});
+
 test("test_branch_write_order_and_staged_path: fetch, switch, write, stage one path, commit, push, back", () => {
   const root = fixtureRoot([activeRecord]);
   const before = recordText(root);
@@ -405,7 +459,7 @@ test("test_branch_write_order_and_staged_path: fetch, switch, write, stage one p
   });
 
   const branch = "track/issue-comments-merged";
-  expect(captured.git.map((args) => args[0])).toEqual(["rev-parse", "fetch", "switch", "add", "commit", "push", "switch"]);
+  expect(captured.git.map(gitStep)).toEqual(["rev-parse", "fetch", "switch", "add", "commit", "push", "switch"]);
   expect(captured.git[0]).toEqual(defaultBranchArgs());
   // The branch is fetched before it is reset: the push is leased, and a lease needs the remote's
   // current value for that branch (see test_a_branch_that_exists_on_origin_is_fetched_before_it_is_reused).
@@ -429,7 +483,7 @@ test("test_branch_write_order_and_staged_path: fetch, switch, write, stage one p
   for (const args of captured.git) {
     expect(args).not.toContain("-A");
     expect(args).not.toContain("--all");
-    expect(args[0]).not.toMatch(/merge|squash|rebase/);
+    expect(gitStep(args)).not.toMatch(/merge|squash|rebase/);
   }
 
   // The PR carries the patched bytes; the working tree ends byte-identical.
@@ -726,7 +780,7 @@ test("test_failure_at_each_git_step_leaves_the_record_byte_identical: switch, ad
     expect(captured.prs).toEqual([]);
     // Nothing after the failed step ran, and the steps that did ran are put back. A failed
     // `switch -c` wrote nothing, so there is nothing to put back.
-    expect(captured.git.map((args) => args[0])).toEqual(ranThrough[failAt]);
+    expect(captured.git.map(gitStep)).toEqual(ranThrough[failAt]);
   }
 });
 
@@ -774,7 +828,7 @@ test("test_a_branch_that_exists_on_origin_is_fetched_before_it_is_reused", () =>
     return git(root, args);
   })).not.toThrow();
   // The fetch comes first: it is what gives the push something to lease against.
-  expect(ran.map((args) => args[0])).toEqual(["fetch", "switch", "add", "commit", "push", "switch"]);
+  expect(ran.map(gitStep)).toEqual(["fetch", "switch", "add", "commit", "push", "switch"]);
   const landed = git(origin, ["rev-parse", `refs/heads/${branch}`]).trim();
   expect(landed).toMatch(/^[0-9a-f]{40}$/);
 
@@ -1105,7 +1159,7 @@ test("a run that cannot name its repository exits 2 and files nothing", () => {
   expect(lines.some((line) => line.includes("GITHUB_REPOSITORY"))).toBe(true);
   expect(captured.prs).toEqual([]);
   // Only the attempt to name the repository: no branch was created, staged, committed or pushed.
-  expect(captured.git.map((args) => args[0])).toEqual(["remote"]);
+  expect(captured.git.map(gitStep)).toEqual(["remote"]);
   expect(recordText(root)).toBe(before);
 });
 

@@ -261,8 +261,22 @@ export function addPathArgs(path: string): string[] {
   return ["add", "--", path];
 }
 
+/**
+ * The commit step names its own committer identity. A fresh checkout - a CI runner with no global
+ * git config - has no identity to inherit, and `git commit` is where a run would otherwise die.
+ * `TEHAS_TRACKER_GIT_NAME` and `TEHAS_TRACKER_GIT_EMAIL` override it; the defaults name the tracker.
+ */
+export const TRACKER_GIT_NAME = "tehas-polyfill-tracker";
+export const TRACKER_GIT_EMAIL = "tehas-polyfill-tracker@users.noreply.github.com";
+
+function gitIdentityArgs(): string[] {
+  const name = process.env.TEHAS_TRACKER_GIT_NAME || TRACKER_GIT_NAME;
+  const email = process.env.TEHAS_TRACKER_GIT_EMAIL || TRACKER_GIT_EMAIL;
+  return ["-c", `user.name=${name}`, "-c", `user.email=${email}`];
+}
+
 export function commitArgs(branch: string, title: string): string[] {
-  return ["commit", "-m", `${branch}: ${title}`];
+  return [...gitIdentityArgs(), "commit", "-m", `${branch}: ${title}`];
 }
 
 /** Leased so a rejected push cannot leave an orphan: it only overwrites what this run fetched. */
