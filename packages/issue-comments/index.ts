@@ -11,8 +11,6 @@ const CUSTOM_TYPE = "issue-comments";
 const PREFIX = "issue-comments polyfill: ";
 
 /** A reason for a failure that never reached the reader's own reason strings. */
-
-/** A reason for a failure that never reached the reader's own reason strings. */
 function failureReason(error: unknown): string {
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
   return typeof code === "string" ? code : "internal error";

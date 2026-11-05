@@ -16,9 +16,10 @@ A directory with no `manifest.json`, or a manifest with no `comments` entry, is 
 rather than a failed read: the session is left as it was found and nothing is written. A manifest
 that is there but cannot be parsed is a failure — the host wrote a broken file — and so is a
 `comments` entry whose blob fails the checks: either one is not used, and the extension writes its
-one line for the session (the latch is set once there is something to read, so a session with
-nothing configured does not burn its attempt, and a blob that never reads is not retried on every
-turn). A directory with nothing to read never hides a corrupt pair: the reason the
+one line for the session (the latch is set once at least one attachment directory is named, so a
+session with nothing configured does not burn its attempt while a named directory with no comments
+entry still spends it, and a blob that never reads is not retried on every turn). A directory with
+nothing to read never hides a corrupt pair: the reason the
 extension reports is the one from a directory that named a comments blob. It is the only writer of
 these lines, so the two-manifests case names the directories itself:
 

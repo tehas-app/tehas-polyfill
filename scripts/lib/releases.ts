@@ -22,6 +22,11 @@ function compare(a: Version, b: Version): number {
   return 0;
 }
 
+/** Whether a name is a pi-rukas release tag: `v<major>.<minor>.<patch>`. */
+export function isReleaseTag(tag: string): boolean {
+  return TAG.test(tag);
+}
+
 /**
  * Every release tag at or after `from`, oldest first, with no cap: the list the containment scan
  * walks, because the release that carries a merge commit can be older than anything the probe

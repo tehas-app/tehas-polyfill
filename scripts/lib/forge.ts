@@ -238,6 +238,17 @@ export function defaultBranchArgs(): string[] {
 }
 
 /**
+ * Fetch the proposal branch before reusing it. `push --force-with-lease` leases against
+ * `refs/remotes/origin/<branch>`, so a branch left on the remote by a closed proposal PR - never
+ * fetched in this run, and ahead of the base branch - makes the push fail with `stale info`. A
+ * branch that does not exist yet makes this call fail, which is the ordinary first run: the push is
+ * the step that has to work.
+ */
+export function fetchBranchArgs(branch: string): string[] {
+  return ["fetch", "--no-tags", "origin", branch];
+}
+
+/**
  * Create or reset: a proposal branch that already exists - one whose PR was closed - is reused,
  * not a fatal error (R3). The tracker never pushes the branch it was checked out on.
  */
@@ -254,7 +265,7 @@ export function commitArgs(branch: string, title: string): string[] {
   return ["commit", "-m", `${branch}: ${title}`];
 }
 
-/** Leased so a rejected push cannot leave an orphan: it only overwrites what the run fetched. */
+/** Leased so a rejected push cannot leave an orphan: it only overwrites what this run fetched. */
 export function pushArgs(branch: string): string[] {
   return ["push", "--force-with-lease", "-u", "origin", branch];
 }
@@ -297,6 +308,12 @@ export function defaultBranch(root: string, git: GitRunner): string {
  * happens after the switch, so a failed run leaves nothing behind (spec S7).
  */
 export function writeBranch(root: string, p: PatchProposal, git: GitRunner): void {
+  try {
+    git(fetchBranchArgs(p.branch));
+  } catch {
+    // No such branch on the remote yet: there is nothing to lease against, and the push below
+    // creates it. Any other fetch failure shows up as the push failing.
+  }
   git(createBranchArgs(p.branch));
   const file = join(root, p.path);
   const original = readFileSync(file, "utf8");

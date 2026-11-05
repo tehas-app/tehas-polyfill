@@ -14,6 +14,7 @@ import {
   compareArgs,
   createBranchArgs,
   defaultBranchArgs,
+  fetchBranchArgs,
   issueArgs,
   listOpenArgs,
   listTagsArgs,
@@ -25,6 +26,7 @@ import {
   pushArgs,
   requireTehasToken,
   switchBackArgs,
+  writeBranch,
   type Filed,
   type GitRunner,
   type PatchProposal,
@@ -45,10 +47,6 @@ const LOCAL = "tehas-app/tehas-polyfill";
 const RECORD = join("packages", "issue-comments", "polyfill.json");
 /** The branch a fixture checkout is on, and the branch a PR is proposed against. */
 const BASE = "main";
-
-// Every run here names the repository it runs in, the way a GitHub Actions run does. The tests
-// that check what happens when it cannot name one take the variable away for the length of a run.
-process.env.GITHUB_REPOSITORY = LOCAL;
 
 const madeDirs: string[] = [];
 
@@ -221,7 +219,10 @@ function withoutTehasToken(fn: () => void): void {
   }
 }
 
-/** A run outside a GitHub Actions checkout: `GITHUB_REPOSITORY` is not there to lean on. */
+/**
+ * A run outside a GitHub Actions checkout: `GITHUB_REPOSITORY` is not there to lean on. Only the
+ * tests that check what happens then use it, and they call `runTrack` rather than `run`.
+ */
 function withoutLocalRepo(fn: () => void): void {
   const saved = process.env.GITHUB_REPOSITORY;
   delete process.env.GITHUB_REPOSITORY;
@@ -231,6 +232,18 @@ function withoutLocalRepo(fn: () => void): void {
     if (saved === undefined) delete process.env.GITHUB_REPOSITORY;
     else process.env.GITHUB_REPOSITORY = saved;
   }
+}
+
+/**
+ * One tracking run, in a repository it can name: the precondition every real run has, stated at the
+ * run that needs it rather than set once for the file.
+ */
+function run(root: string, o: TrackRunOpts): number {
+  let code = 0;
+  inLocalRepo(() => {
+    code = runTrack(root, o);
+  });
+  return code;
 }
 
 /** The titles a run sees, as the seam now reports them: one repository and kind at a time. */
@@ -256,7 +269,7 @@ test("test_dry_run_changes_nothing: no file written, no filing call, no git call
 
   let code = 0;
   const out = outputOf(() => {
-    code = runTrack(root, seams(captured, { dryRun: true, fetchUpstream: closedMerged, listOpen: nothingOpen }));
+    code = run(root, seams(captured, { dryRun: true, fetchUpstream: closedMerged, listOpen: nothingOpen }));
   });
 
   expect(code).toBe(0);
@@ -275,7 +288,7 @@ test("nothing_to_do: a run with no action says so and exits 0", () => {
 
   let code = 0;
   const out = outputOf(() => {
-    code = runTrack(root, seams(captured, { dryRun: true, fetchUpstream: openUpstream, listOpen: nothingOpen }));
+    code = run(root, seams(captured, { dryRun: true, fetchUpstream: openUpstream, listOpen: nothingOpen }));
   });
 
   expect(code).toBe(0);
@@ -290,7 +303,7 @@ test("merged package: the first containing tag becomes until and the retire issu
 
   let code = 0;
   const out = outputOf(() => {
-    code = runTrack(root, seams(captured, { dryRun: true, fetchUpstream: closedMerged, listOpen: nothingOpen }));
+    code = run(root, seams(captured, { dryRun: true, fetchUpstream: closedMerged, listOpen: nothingOpen }));
   });
 
   expect(code).toBe(0);
@@ -311,7 +324,7 @@ test("test_idempotent_by_title: a title that is already open files nothing", () 
 
   let code = 0;
   const out = outputOf(() => {
-    code = runTrack(root, seams(captured, { dryRun: false, fetchUpstream: closedMerged, listOpen: openBoth({ prs: [MERGED_TITLE], issues: [] }) }));
+    code = run(root, seams(captured, { dryRun: false, fetchUpstream: closedMerged, listOpen: openBoth({ prs: [MERGED_TITLE], issues: [] }) }));
   });
 
   expect(code).toBe(0);
@@ -331,7 +344,7 @@ test("a filed title is not filed again by the next run", () => {
 
   inLocalRepo(() => {
     outputOf(() => {
-      expect(runTrack(root, seams(first, { dryRun: false, fetchUpstream: closedMerged, listOpen: nothingOpen }))).toBe(0);
+      expect(run(root, seams(first, { dryRun: false, fetchUpstream: closedMerged, listOpen: nothingOpen }))).toBe(0);
     });
   });
   expect(first.prs.map((p) => p.title)).toEqual([MERGED_TITLE]);
@@ -342,7 +355,7 @@ test("a filed title is not filed again by the next run", () => {
   // The next run sees that PR open and files nothing, so it branches nothing either.
   const second = capture();
   const out = outputOf(() => {
-    expect(runTrack(root, seams(second, { dryRun: false, fetchUpstream: closedMerged, listOpen: openBoth({ prs: [MERGED_TITLE], issues: [] }) }))).toBe(0);
+    expect(run(root, seams(second, { dryRun: false, fetchUpstream: closedMerged, listOpen: openBoth({ prs: [MERGED_TITLE], issues: [] }) }))).toBe(0);
   });
   expect(second.prs).toEqual([]);
   expect(second.git).toEqual([]);
@@ -361,7 +374,7 @@ test("test_pr_branch_name_per_action: one branch per action, named for the packa
   inLocalRepo(() => {
     withTehasToken(() => {
       outputOf(() => {
-        expect(runTrack(root, seams(captured, { dryRun: false, fetchUpstream: closedMerged, listOpen: nothingOpen }))).toBe(0);
+        expect(run(root, seams(captured, { dryRun: false, fetchUpstream: closedMerged, listOpen: nothingOpen }))).toBe(0);
       });
     });
   });
@@ -373,38 +386,42 @@ test("test_pr_branch_name_per_action: one branch per action, named for the packa
   inLocalRepo(() => {
     withTehasToken(() => {
       outputOf(() => {
-        expect(runTrack(fixtureRoot([activeRecord]), seams(declined, { dryRun: false, fetchUpstream: closedUnmerged, listOpen: nothingOpen }))).toBe(0);
+        expect(run(fixtureRoot([activeRecord]), seams(declined, { dryRun: false, fetchUpstream: closedUnmerged, listOpen: nothingOpen }))).toBe(0);
       });
     });
   });
   expect(declined.prs.map((p) => p.branch)).toEqual(["track/issue-comments-declined"]);
 });
 
-test("test_branch_write_order_and_staged_path: switch, write, stage one path, commit, push, back", () => {
+test("test_branch_write_order_and_staged_path: fetch, switch, write, stage one path, commit, push, back", () => {
   const root = fixtureRoot([activeRecord]);
   const before = recordText(root);
   const captured = capture();
 
   inLocalRepo(() => {
     outputOf(() => {
-      expect(runTrack(root, seams(captured, { dryRun: false, fetchUpstream: closedMerged, listOpen: nothingOpen }))).toBe(0);
+      expect(run(root, seams(captured, { dryRun: false, fetchUpstream: closedMerged, listOpen: nothingOpen }))).toBe(0);
     });
   });
 
   const branch = "track/issue-comments-merged";
-  expect(captured.git.map((args) => args[0])).toEqual(["rev-parse", "switch", "add", "commit", "push", "switch"]);
+  expect(captured.git.map((args) => args[0])).toEqual(["rev-parse", "fetch", "switch", "add", "commit", "push", "switch"]);
   expect(captured.git[0]).toEqual(defaultBranchArgs());
-  expect(captured.git[1]).toEqual(createBranchArgs(branch));
+  // The branch is fetched before it is reset: the push is leased, and a lease needs the remote's
+  // current value for that branch (see test_a_branch_that_exists_on_origin_is_fetched_before_it_is_reused).
+  expect(captured.git[1]).toEqual(fetchBranchArgs(branch));
+  expect(captured.git[1]).toEqual(["fetch", "--no-tags", "origin", branch]);
+  expect(captured.git[2]).toEqual(createBranchArgs(branch));
   // A proposal branch that already exists is reset, not fatal (R3), and the push is leased so a
   // rejected push cannot leave an orphan behind.
-  expect(captured.git[1]).toEqual(["switch", "-C", branch]);
+  expect(captured.git[2]).toEqual(["switch", "-C", branch]);
   // The repo rule: the one record path is staged by name, never `git add -A`.
-  expect(captured.git[2]).toEqual(addPathArgs(RECORD));
-  expect(captured.git[3]).toEqual(commitArgs(branch, MERGED_TITLE));
-  expect(captured.git[4]).toEqual(pushArgs(branch));
-  expect(captured.git[4]).toEqual(["push", "--force-with-lease", "-u", "origin", branch]);
+  expect(captured.git[3]).toEqual(addPathArgs(RECORD));
+  expect(captured.git[4]).toEqual(commitArgs(branch, MERGED_TITLE));
+  expect(captured.git[5]).toEqual(pushArgs(branch));
+  expect(captured.git[5]).toEqual(["push", "--force-with-lease", "-u", "origin", branch]);
   // The working tree is put back on the branch the PR is proposed against.
-  expect(captured.git[5]).toEqual(switchBackArgs(BASE));
+  expect(captured.git[6]).toEqual(switchBackArgs(BASE));
 
   // Only that one path is ever staged, and no git step is a merge.
   const staged = captured.git.filter((args) => args[0] === "add").flatMap((args) => args.slice(args.indexOf("--") + 1));
@@ -429,7 +446,7 @@ test("test_head_names_the_branch: gh pr create names the branch it wrote, agains
 
   inLocalRepo(() => {
     outputOf(() => {
-      expect(runTrack(root, seams(captured, { dryRun: false, fetchUpstream: closedMerged, listOpen: nothingOpen }))).toBe(0);
+      expect(run(root, seams(captured, { dryRun: false, fetchUpstream: closedMerged, listOpen: nothingOpen }))).toBe(0);
     });
   });
 
@@ -451,7 +468,7 @@ test("test_no_tehas_label: no argument list names a label, and none merges", () 
   const captured = capture();
   inLocalRepo(() => {
     outputOf(() => {
-      expect(runTrack(root, seams(captured, { dryRun: false, fetchUpstream: closedMerged, listOpen: nothingOpen }))).toBe(0);
+      expect(run(root, seams(captured, { dryRun: false, fetchUpstream: closedMerged, listOpen: nothingOpen }))).toBe(0);
     });
   });
 
@@ -507,7 +524,7 @@ test("test_missing_tehas_token_exits_2_and_files_nothing: a cross-repo filing is
     withoutTehasToken(() => {
       inLocalRepo(() => {
         outputOf(() => {
-          code = runTrack(root, {
+          code = run(root, {
             dryRun: false,
             fetchUpstream: closedUnmerged,
             listOpen: nothingOpen,
@@ -543,7 +560,7 @@ test("a dry run needs no tehas credential and files nothing", () => {
   let code = 0;
   const out = outputOf(() => {
     withoutTehasToken(() => {
-      code = runTrack(root, {
+      code = run(root, {
         dryRun: true,
         fetchUpstream: closedUnmerged,
         listOpen: nothingOpen,
@@ -583,7 +600,7 @@ test("test_existing_proposal_branch_is_reset: a closed proposal does not break t
   const lines = stderrLines(() => {
     inLocalRepo(() => {
       outputOf(() => {
-        code = runTrack(root, {
+        code = run(root, {
           dryRun: false,
           fetchUpstream: closedMerged,
           listOpen: nothingOpen,
@@ -613,7 +630,7 @@ test("the reminder title does not move with the record's age, so the next day fi
     runs.push(captured);
     withTehasToken(() => {
       outputOf(() => {
-        expect(runTrack(root, seams(captured, { dryRun: false, fetchUpstream: openUpstream, listOpen: nothingOpen, now: new Date(day) }))).toBe(0);
+        expect(run(root, seams(captured, { dryRun: false, fetchUpstream: openUpstream, listOpen: nothingOpen, now: new Date(day) }))).toBe(0);
       });
     });
   }
@@ -626,7 +643,7 @@ test("the reminder title does not move with the record's age, so the next day fi
   const third = capture();
   withTehasToken(() => {
     outputOf(() => {
-      expect(runTrack(root, seams(third, { dryRun: false, fetchUpstream: openUpstream, listOpen: openBoth({ prs: [], issues: [REMIND_TITLE] }), now: new Date("2026-11-25T12:00:00Z") }))).toBe(0);
+      expect(run(root, seams(third, { dryRun: false, fetchUpstream: openUpstream, listOpen: openBoth({ prs: [], issues: [REMIND_TITLE] }), now: new Date("2026-11-25T12:00:00Z") }))).toBe(0);
     });
   });
   expect(third.issues).toEqual([]);
@@ -640,7 +657,7 @@ test("test_failure_exits_2_without_partial_write: every unfinished polyfill.json
 
   let code = 0;
   outputOf(() => {
-    code = runTrack(root, seams(captured, {
+    code = run(root, seams(captured, {
       dryRun: false,
       fetchUpstream: closedMerged,
       listOpen: nothingOpen,
@@ -667,7 +684,7 @@ test("a filing call that fails leaves that package's record byte-identical", () 
 
   let code = 0;
   outputOf(() => {
-    code = runTrack(root, seams(captured, {
+    code = run(root, seams(captured, {
       dryRun: false,
       fetchUpstream: closedMerged,
       listOpen: nothingOpen,
@@ -684,10 +701,10 @@ test("a filing call that fails leaves that package's record byte-identical", () 
 
 test("test_failure_at_each_git_step_leaves_the_record_byte_identical: switch, add, commit and push", () => {
   const ranThrough: Record<string, string[]> = {
-    switch: ["rev-parse", "switch"],
-    add: ["rev-parse", "switch", "add", "switch"],
-    commit: ["rev-parse", "switch", "add", "commit", "switch"],
-    push: ["rev-parse", "switch", "add", "commit", "push", "switch"],
+    switch: ["rev-parse", "fetch", "switch"],
+    add: ["rev-parse", "fetch", "switch", "add", "switch"],
+    commit: ["rev-parse", "fetch", "switch", "add", "commit", "switch"],
+    push: ["rev-parse", "fetch", "switch", "add", "commit", "push", "switch"],
   };
   for (const failAt of ["switch", "add", "commit", "push"]) {
     const root = fixtureRoot([activeRecord]);
@@ -696,7 +713,7 @@ test("test_failure_at_each_git_step_leaves_the_record_byte_identical: switch, ad
 
     let code = 0;
     outputOf(() => {
-      code = runTrack(root, seams(captured, {
+      code = run(root, seams(captured, {
         dryRun: false,
         fetchUpstream: closedMerged,
         listOpen: nothingOpen,
@@ -713,6 +730,90 @@ test("test_failure_at_each_git_step_leaves_the_record_byte_identical: switch, ad
   }
 });
 
+test("test_a_branch_that_exists_on_origin_is_fetched_before_it_is_reused", () => {
+  // `push --force-with-lease` leases against `refs/remotes/origin/<branch>`. A proposal branch left
+  // by a closed PR exists on the remote and was never fetched in this run, so without a fetch the
+  // push is rejected with `stale info` and the scheduled run exits 2. The remote here is a bare
+  // repository in /tmp: the branch genuinely exists on it, and nothing reaches the network.
+  const origin = mkdtempSync(join(tmpdir(), "track-origin-"));
+  madeDirs.push(origin);
+  git(origin, ["init", "-q", "--bare", "-b", BASE]);
+
+  const root = agedRoot("2026-11-01T12:00:00 +0000");
+  git(root, ["remote", "add", "origin", origin]);
+  git(root, ["push", "-q", "origin", BASE]);
+
+  const branch = prBranch("issue-comments", "pr-merged");
+  // The out-of-band proposal commit: what a closed proposal PR leaves on the remote. A scratch clone
+  // puts it there, so this checkout has no remote-tracking ref for it and its own copy of the
+  // branch, if it has one, is behind - the situation a scheduled run actually meets.
+  const scratch = mkdtempSync(join(tmpdir(), "track-scratch-"));
+  madeDirs.push(scratch);
+  git(scratch, ["clone", "-q", origin, "."]);
+  git(scratch, ["switch", "-q", "-c", branch]);
+  writeFileSync(join(scratch, RECORD), `${JSON.stringify(recordOf("issue-comments", "merged", { pr: 2099 }), null, 2)}\n`);
+  git(scratch, ["add", "--", RECORD]);
+  git(scratch, ["commit", "-q", "-m", "the proposal that was closed"]);
+  git(scratch, ["push", "-q", "origin", branch]);
+  expect(git(root, ["branch", "--list", branch])).toBe("");
+
+  const before = recordText(root);
+  const ran: string[][] = [];
+  const proposal: PatchProposal = {
+    repo: LOCAL,
+    base: BASE,
+    branch,
+    path: RECORD,
+    title: MERGED_TITLE,
+    body: "proposed until v0.15.0",
+    content: `${JSON.stringify(recordOf("issue-comments", "merged", { pr: 2100 }), null, 2)}\n`,
+  };
+
+  expect(() => writeBranch(root, proposal, (args) => {
+    ran.push(args);
+    return git(root, args);
+  })).not.toThrow();
+  // The fetch comes first: it is what gives the push something to lease against.
+  expect(ran.map((args) => args[0])).toEqual(["fetch", "switch", "add", "commit", "push", "switch"]);
+  const landed = git(origin, ["rev-parse", `refs/heads/${branch}`]).trim();
+  expect(landed).toMatch(/^[0-9a-f]{40}$/);
+
+  // The run is repeatable: the branch now exists on both sides and a second run reuses it.
+  expect(() => writeBranch(root, proposal, (args) => git(root, args))).not.toThrow();
+  expect(git(origin, ["rev-parse", `refs/heads/${branch}`]).trim()).toMatch(/^[0-9a-f]{40}$/);
+
+  // And the checkout is left as it was found: the base branch, the record byte-identical.
+  expect(git(root, ["rev-parse", "--abbrev-ref", "HEAD"]).trim()).toBe(BASE);
+  expect(recordText(root)).toBe(before);
+  expect(git(root, ["status", "--porcelain"])).toBe("");
+});
+
+test("test_a_branch_that_does_not_exist_yet_is_created_by_the_push", () => {
+  // The first run on a fresh proposal: the fetch names a ref that is not there, and that is not the
+  // tracker's problem - the push creates the branch.
+  const origin = mkdtempSync(join(tmpdir(), "track-origin-"));
+  madeDirs.push(origin);
+  git(origin, ["init", "-q", "--bare", "-b", BASE]);
+
+  const root = agedRoot("2026-11-01T12:00:00 +0000");
+  git(root, ["remote", "add", "origin", origin]);
+  git(root, ["push", "-q", "origin", BASE]);
+
+  const branch = prBranch("issue-comments", "pr-released");
+  const proposal: PatchProposal = {
+    repo: LOCAL,
+    base: BASE,
+    branch,
+    path: RECORD,
+    title: RELEASED_TITLE,
+    body: "proposed until v0.15.0",
+    content: `${JSON.stringify(recordOf("issue-comments", "released", { until: "v0.15.0" }), null, 2)}\n`,
+  };
+
+  expect(() => writeBranch(root, proposal, (args) => git(root, args))).not.toThrow();
+  expect(git(origin, ["rev-parse", `refs/heads/${branch}`]).trim()).toMatch(/^[0-9a-f]{40}$/);
+});
+
 test("no seam and no dry run: the real git calls run, and a push with no remote exits 2", () => {
   // A real repository with the record committed and no `origin` remote: the real chain runs, and
   // the push is the step that cannot succeed. Nothing here can reach anywhere.
@@ -723,7 +824,7 @@ test("no seam and no dry run: the real git calls run, and a push with no remote 
   const lines = stderrLines(() => {
     inLocalRepo(() => {
       outputOf(() => {
-        code = runTrack(root, {
+        code = run(root, {
           dryRun: false,
           fetchUpstream: closedMerged,
           listOpen: nothingOpen,
@@ -750,7 +851,7 @@ test("a compare call that fails files nothing and writes nothing", () => {
 
   let code = 0;
   outputOf(() => {
-    code = runTrack(root, seams(captured, {
+    code = run(root, seams(captured, {
       dryRun: false,
       fetchUpstream: closedMerged,
       listOpen: nothingOpen,
@@ -773,7 +874,7 @@ test("closed without a merge files the decline PR and the decide issue", () => {
   let code = 0;
   outputOf(() => {
     withTehasToken(() => {
-      code = runTrack(root, seams(captured, { dryRun: false, fetchUpstream: closedUnmerged, listOpen: nothingOpen }));
+      code = run(root, seams(captured, { dryRun: false, fetchUpstream: closedUnmerged, listOpen: nothingOpen }));
     });
   });
 
@@ -790,7 +891,7 @@ test("the reminder files on tehas once the record is 90 days old", () => {
   let code = 0;
   const out = outputOf(() => {
     withTehasToken(() => {
-      code = runTrack(root, seams(captured, { dryRun: false, fetchUpstream: openUpstream, listOpen: nothingOpen }));
+      code = run(root, seams(captured, { dryRun: false, fetchUpstream: openUpstream, listOpen: nothingOpen }));
     });
   });
 
@@ -810,7 +911,7 @@ test("an already-open reminder title files nothing", () => {
 
   let code = 0;
   const out = outputOf(() => {
-    code = runTrack(root, seams(captured, { dryRun: false, fetchUpstream: openUpstream, listOpen: openBoth({ prs: [], issues: [REMIND_TITLE] }) }));
+    code = run(root, seams(captured, { dryRun: false, fetchUpstream: openUpstream, listOpen: openBoth({ prs: [], issues: [REMIND_TITLE] }) }));
   });
 
   expect(code).toBe(0);
@@ -829,7 +930,7 @@ test("test_containment_is_not_capped_at_the_probe_window: an old containing rele
   withTehasToken(() => {
     inLocalRepo(() => {
       outputOf(() => {
-        code = runTrack(root, seams(captured, {
+        code = run(root, seams(captured, {
           dryRun: false,
           fetchUpstream: closedMerged,
           listOpen: nothingOpen,
@@ -864,7 +965,7 @@ test("the tag the tracker chose does not move when newer releases land", () => {
     withTehasToken(() => {
       inLocalRepo(() => {
         outputOf(() => {
-          expect(runTrack(root, seams(captured, { dryRun: false, fetchUpstream: closedMerged, listOpen: nothingOpen, listTags: () => tags, compare }))).toBe(0);
+          expect(run(root, seams(captured, { dryRun: false, fetchUpstream: closedMerged, listOpen: nothingOpen, listTags: () => tags, compare }))).toBe(0);
         });
       });
     });
@@ -882,7 +983,7 @@ test("the PR and the issue body name the tag the tracker chose", () => {
   withTehasToken(() => {
     inLocalRepo(() => {
       outputOf(() => {
-        expect(runTrack(root, seams(captured, { dryRun: false, fetchUpstream: closedMerged, listOpen: nothingOpen }))).toBe(0);
+        expect(run(root, seams(captured, { dryRun: false, fetchUpstream: closedMerged, listOpen: nothingOpen }))).toBe(0);
       });
     });
   });
@@ -908,7 +1009,7 @@ test("test_open_titles_are_read_once_per_half_actually_used", () => {
     withTehasToken(() => {
       inLocalRepo(() => {
         outputOf(() => {
-          expect(runTrack(root, seams(captured, { dryRun: false, fetchUpstream: setup.upstream, listOpen }))).toBe(0);
+          expect(run(root, seams(captured, { dryRun: false, fetchUpstream: setup.upstream, listOpen }))).toBe(0);
         });
       });
     });
@@ -928,7 +1029,7 @@ test("test_open_titles_are_memoized_per_repository_and_kind", () => {
   withTehasToken(() => {
     inLocalRepo(() => {
       outputOf(() => {
-        expect(runTrack(root, seams(captured, { dryRun: false, fetchUpstream: closedMerged, listOpen: (repo, kind) => {
+        expect(run(root, seams(captured, { dryRun: false, fetchUpstream: closedMerged, listOpen: (repo, kind) => {
           used.push([repo, kind]);
           return [];
         } }))).toBe(0);
@@ -959,6 +1060,32 @@ test("test_local_repo_names_its_own_repository_and_fails_when_it_cannot", () => 
   withoutLocalRepo(() => expect(() => localRepo(gitOf({}))).toThrow(/GITHUB_REPOSITORY/));
 });
 
+test("test_unparseable_from_is_warned_about: it can never match an upstream release", () => {
+  // `from` is the floor of the containment scan. A value that is not a release tag makes the scan
+  // answer "no candidates" silently, which would leave a merged package permanently un-releasable.
+  const root = fixtureRoot([recordOf("issue-comments", "merged", { pr: 2100, from: "0.14.0" })]);
+  const captured = capture();
+  const compared: string[] = [];
+
+  let code = 0;
+  const lines = stderrLines(() => {
+    code = run(root, seams(captured, {
+      dryRun: false,
+      fetchUpstream: closedMerged,
+      listOpen: nothingOpen,
+      listTags: () => ["v0.15.0", "v0.14.9"],
+      compare: (tag) => {
+        compared.push(tag);
+        return "behind";
+      },
+    }));
+  });
+
+  expect(code).toBe(0);
+  expect(compared).toEqual([]);
+  expect(lines.some((line) => line.includes("0.14.0") && line.includes("v<major>.<minor>.<patch>"))).toBe(true);
+});
+
 test("a run that cannot name its repository exits 2 and files nothing", () => {
   const root = fixtureRoot([activeRecord]);
   const before = recordText(root);
@@ -966,6 +1093,7 @@ test("a run that cannot name its repository exits 2 and files nothing", () => {
 
   let code = 0;
   const lines = stderrLines(() => {
+    // `runTrack`, not `run`: this is the run with no repository to name.
     withoutLocalRepo(() => {
       outputOf(() => {
         code = runTrack(root, seams(captured, { dryRun: false, fetchUpstream: closedMerged, listOpen: nothingOpen }));
@@ -989,7 +1117,7 @@ test("test_a_real_run_reaches_tehas_only_with_its_own_credential", () => {
   withoutTehasToken(() => {
     inLocalRepo(() => {
       outputOf(() => {
-        prCode = runTrack(prRoot, seams(prs, { dryRun: false, fetchUpstream: closedMerged, listOpen: nothingOpen }));
+        prCode = run(prRoot, seams(prs, { dryRun: false, fetchUpstream: closedMerged, listOpen: nothingOpen }));
       });
     });
   });
@@ -1006,7 +1134,7 @@ test("test_a_real_run_reaches_tehas_only_with_its_own_credential", () => {
     withoutTehasToken(() => {
       inLocalRepo(() => {
         outputOf(() => {
-          code = runTrack(tehasRoot, seams(captured, { dryRun: false, fetchUpstream: closedUnmerged, listOpen: nothingOpen }));
+          code = run(tehasRoot, seams(captured, { dryRun: false, fetchUpstream: closedUnmerged, listOpen: nothingOpen }));
         });
       });
     });
@@ -1023,7 +1151,7 @@ test("test_a_real_run_reaches_tehas_only_with_its_own_credential", () => {
   withoutTehasToken(() => {
     inLocalRepo(() => {
       outputOf(() => {
-        dryCode = runTrack(fixtureRoot([activeRecord]), seams(dry, { dryRun: true, fetchUpstream: closedUnmerged, listOpen: nothingOpen }));
+        dryCode = run(fixtureRoot([activeRecord]), seams(dry, { dryRun: true, fetchUpstream: closedUnmerged, listOpen: nothingOpen }));
       });
     });
   });

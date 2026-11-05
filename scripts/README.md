@@ -32,12 +32,24 @@ bun run scripts/track.ts [--dry-run]
 
 - Exit 0 nothing failed (including "nothing to do"), 2 a bad flag or a call that failed. A failed
   run leaves every `polyfill.json` byte-identical.
-- `--dry-run` prints what it would do and changes nothing.
-- Filing an issue on `TEHAS_REPO` is a cross-repo call and needs `TEHAS_TRACKING_TOKEN`. Without it
-  a real run exits 2 naming that variable and files nothing; it never falls back to the workflow's
-  own token, and it never quietly skips.
+- The repository it files PRs into comes from `GITHUB_REPOSITORY`, or from the checkout's `origin`
+  remote. A run that can name it neither exits 2 naming `GITHUB_REPOSITORY` and files nothing — it
+  never files at whatever directory it happens to stand in.
+- `--dry-run` prints what it would do and changes nothing. It still makes the read-only `gh` calls:
+  a dry run is not offline, it is only non-filing.
+- Idempotence reads open titles with `--limit 200`, because `gh pr list` and `gh issue list` stop at
+  30 by default and an older proposal would otherwise look unfilable-by-title in name only.
+- Only a decision that **files an issue on `TEHAS_REPO`** is a cross-repo call, and only that one
+  needs `TEHAS_TRACKING_TOKEN`: a decision that files a PR in this repository runs on the workflow's
+  own token. A run that cannot file on tehas exits 2 naming that variable and files **nothing**, not
+  even the PR it decided to open first — a run files everything or nothing. It never falls back to
+  the workflow token for tehas, and it never quietly skips.
 
 ## Release lists: what counts, and the page limit
+
+- A record's `from` has to be a release tag, `v<major>.<minor>.<patch>`. It is the floor of the
+  containment scan, so an unparseable one matches no release at all: the tracker writes a stderr
+  line naming it instead of deciding from an empty list.
 
 - A **draft** release is not a release nobody can install, so it is never listed — not as a probe
   row and not as a candidate for a record's `until`. A **prerelease** is a release and is listed;
@@ -47,6 +59,6 @@ bun run scripts/track.ts [--dry-run]
   release at or after the record's `from`, oldest first, with no cap, and stops at the first hit.
   The 12-release window is the probe's, not the tracker's.
 - `gh api repos/<upstream>/releases?per_page=100` returns one page of at most 100 releases. If that
-  call comes back with exactly 100, upstream has more releases than this tool fetched and an older
+  call comes back with 100 or more, upstream has more releases than this tool fetched and an older
   one could carry the merge commit, so both tools **exit 2 naming the limit** rather than silently
   scanning a shorter list. When upstream passes 100 releases, the call has to paginate.

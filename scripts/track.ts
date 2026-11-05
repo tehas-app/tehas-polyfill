@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { containsCommit, decidePackage } from "./lib/decide";
 import { compareStatus, defaultBranch, fetchUpstream, filePr, gitOf, issueRepo, listTags, localRepo, openIssue, openTitles, prBranch, requireTehasToken, tehasRepo } from "./lib/forge";
 import { applyPatch, firstCommitAgeDays, trackedPackages } from "./lib/state";
-import { releasesAtOrAfter } from "./lib/releases";
+import { isReleaseTag, releasesAtOrAfter } from "./lib/releases";
 import type { GitRunner, PatchProposal, TrackRunOpts } from "./lib/forge";
 import type { OpenTitles, PolyfillRecord, TrackAction, UpstreamState } from "./lib/types";
 
@@ -131,6 +131,12 @@ export function runTrack(root: string, o: TrackRunOpts): number {
   const fileIssue = o.openIssue ?? ((repo: string, title: string, body: string) => openIssue(root, repo, title, body));
 
   for (const pkg of trackedPackages(root)) {
+    if (!isReleaseTag(pkg.from)) {
+      // A `from` that is not a release tag makes every comparison return nothing, so a merged
+      // package with one can never be found released. Say it, rather than deciding from an empty
+      // list as if upstream had released nothing.
+      process.stderr.write(`track: ${pkg.name}: from "${pkg.from}" is not a pi-rukas release tag (v<major>.<minor>.<patch>): no upstream release can be matched\n`);
+    }
     try {
       trackPackage(root, pkg, o, { now, here, tehas, git, fetch, readOpen, listTagsOf, fileIssue });
     } catch (error) {
