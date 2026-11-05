@@ -57,6 +57,25 @@ test("merged plus a release that contains the commit goes released, and files th
   expect(actions[1]!.body).toContain("v0.15.0");
 });
 
+test("the retirement body names what a pin-less host can read, and files no pin instruction", () => {
+  const actions = decidePackage(mergedPkg, closedWithMerge, ["v0.15.0"], 40, nothingOpen);
+  expect(kinds(actions)).toEqual(["pr-released", "issue-retire"]);
+  const body = actions[1]!.body;
+  // tehas keeps no version pin and writes no tehas.rukas.polyfills label (tehas-app/tehas-polyfill#3
+  // records what it does instead), so the checkable fact is the base image's capabilities answer,
+  // which is what tehas scripts/polyfills.sh decides expiry from.
+  expect(body).toContain("/opt/pi-rukas/bin/pi-rukas-headless --capabilities");
+  expect(body).toContain("issueComments");
+  expect(body).toContain("v0.15.0");
+  // The half of the sentence this repository owns, and nothing else in the suite pins it.
+  expect(body).toContain("Then delete packages/issue-comments/ here");
+  // Asserted as an instruction, not as a word: an honest sentence may contain "pin" to say tehas
+  // keeps none, and a guard that forbids the word gets edited the first time someone writes it.
+  expect(body).not.toContain("pi-rukas pin");
+  expect(body).not.toContain("TEHAS_POLYFILL_VERSION");
+  expect(body).not.toMatch(/pin to .* or later/);
+});
+
 test("the oldest containing release becomes until", () => {
   const actions = decidePackage(mergedPkg, closedWithMerge, ["v0.15.0", "v0.16.0"], 40, nothingOpen);
   expect(actions[0]!.patch).toEqual({ state: "released", until: "v0.15.0" });
