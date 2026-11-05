@@ -1,0 +1,95 @@
+- Ruling: work on the session branch superlite/sessions/issue-comments-polyfill in this checkout, not a separate feature worktree - nothing else is in flight in this fresh repo - cost: a collision if another feature starts here
+- Ruling: accept haiku for T9 and the 2-component NOTEs on T4 and T9 - forge.ts and index.ts are thin wiring over interfaces T2, T3, T7 and T8 already specify - cost: one fixer-sonnet round if a seam goes wrong
+- start 330c30a
+- Ruling: superlite agent names are not registered in this pi install (only pi-subagents builtins), and the model registry has no sonnet or haiku - implementers run as pi native worker on the session model huono/qwen3.8-flash-next, per the pi-tools mapping - cost: tier routing is nominal, haiku-tier tasks get the same model
+- Ruling: each implementer reads .superlite/prime.md itself instead of having the prime pasted into its brief - same bytes, no transcription risk, less coordinator output - cost: one extra read call per agent
+- Ruling: Wave 0 stopped with no stubs - T1 wrote the skeleton concurrently and every stub file is owned by a live implementer - consumers build against the real producers and report DONE_WITH_CONCERNS when a producer is not there yet - cost: T4 and T5 may need a re-run after their producers checkpoint
+- Ruling: superlite's test-path classifier does not recognise test/*.test.ts, so run_tests --fast <file> reports 'no tests found' here - implementers verify a single file with 'bun test <file>' and the whole suite with run_tests --full --background - cost: per-checkpoint verification is coarse
+- checkpoint T1 9ef6bf332c skeleton
+- tests fast passed=69 failed=0 skipped=0 seconds=0.3
+- tests full passed=77 failed=0 skipped=0 seconds=0.3
+- Ruling: index.ts is the only stderr writer; read.ts returns reasons and prints nothing - T2 needs a two-line fix - cost: one follow-up fix round on T2
+- Ruling: accept T2's reason order (lstat before integrity-field shape) and T8's --date=iso-strict (git 2.53 rejects iso-8601) - cost: the plan note's exact flag is not what ships
+- Ruling: T7 owns the wording of pr-released, pr-declined and issue-decide titles and all bodies; T9 must not assert those strings - cost: wording drift between decide and track is possible
+- checkpoint T2 01bce48c39 blob reader
+- checkpoint T8 319aadf4b8 state and idempotence
+- checkpoint T7 2e7820c73c tracking decision
+- checkpoint T0 29c68beff6200393ebe816d0a2d507b67e6aaf36 (wave 0 recorded empty: no owned files written, stubs ruled out)
+- tests fast passed=103 failed=0 skipped=0 seconds=0.3
+- tests full passed=103 failed=0 skipped=0 seconds=0.3
+- Ruling: releaseTags caps the TOTAL at max with from forced in (the plan's example beats S9's 'newest 12 plus from' phrasing) - cost: with max=12 you get 11 newest plus from, not 12 newest plus from
+- Ruling: the probe's online mode reads extension/src/headless/capabilities.ts at the release tag (verified present at v0.14.0) and lists true when it declares issueComments: true - a pi-rukas release body is a changelog, not a capabilities document - cost: the probe breaks if upstream moves that file
+- checkpoint T6 41ab1dcac3 capability probe
+- checkpoint T5 ed1a45d917 integration
+- tests fast passed=69 failed=0 skipped=0 seconds=0.3
+- Ruling: runTrack takes TrackOpts & ForgeSeams - listTags, openPr and openIssue seams are declared in forge.ts because scripts/lib/types.ts is checkpointed and frozen; with no seam and dryRun false the real gh call runs - cost: the tracker's seam list is wider than the plan printed
+- checkpoint T2 0ee679a7a3 blob reader
+- Ruling: accept T3's four guesses (cut measured in UTF-16 units with a pair dropped whole; dropped counts malformed plus cap drops while the in-message line names only cap drops; ordering by Date.parse with a raw-string fallback; misplaced pr/path/line is malformed) - cost: a native pi-rukas implementation may count malformed items differently at retirement
+- checkpoint T3 bf2712bed8 rendering
+- tests full passed=104 failed=0 skipped=0 seconds=0.4
+- checkpoint T4 6ade82ee8b the extension
+- tests fast passed=118 failed=0 skipped=0 seconds=0.4
+- Ruling: the capability probe reads the HEADLESS_FEATURES block of extension/src/headless/capabilities.ts at each release tag; fixtures are source snapshots - cost: the probe breaks if upstream moves or renames that file
+- tests full passed=118 failed=0 skipped=0 seconds=0.4
+- checkpoint T6 2ee4d1f0b9 capability probe
+- Ruling: the plan runs 1,251 chars over the 15k cap after the T6b follow-up task was added - accepted, the slim prime is unaffected and no task is dispatched with the whole plan - cost: the plan is harder to read in one screen
+- Ruling: the once-per-session latch is set on the first user-message run, before the read, so a corrupt blob writes its failure line once and is not retried each turn - cost: a blob made valid mid-session is not picked up until the next session
+- Ruling: accept the reviewer's P1 findings - by and path are bounded to printable characters (by 1..100, path 1..300 with no leading slash or .. segment) because they print into the unquoted label, and an at that passes the regex but fails Date.parse is malformed - cost: an upstream comment author with an exotic login gets their comment dropped
+- tests full passed=118 failed=0 skipped=0 seconds=0.4
+- Ruling: forge.ts owns the git write the tracker needs - create a branch, commit the patched polyfill.json, push, and open the PR with --head naming that branch; dry-run performs none of it - cost: the tracker can push a branch, which is an outward act the workflow does, not this run
+- checkpoint T9 c8d20a2693 gh calls and the entry
+- tests full passed=121 failed=0 skipped=0 seconds=2.1
+- checkpoint T6b 9b7885079f probe fixtures
+- Ruling: a no comments entry, no manifest or no directories is nothing to read - no message and no stderr line; only a comments entry whose blob cannot be used, and the ambiguous case, write the no comments line - cost: a host that forgets to write comments.json is silent, and only the absence of the comments block in the cycle tells you
+- Ruling: accept the fixer's realInstant field-range check for at (bun Date.parse rolls 2026-02-30 to 2 March) - cost: a timestamp with an out-of-range field is a dropped comment rather than a rendered one
+- tests full passed=132 failed=0 skipped=0 seconds=1.5
+- Ruling: a directory whose manifest carries a comments entry is a candidate; one candidate and no valid blob is a failure with a line, and a manifest that exists but cannot be parsed is a failure (bad manifest) - only no candidate at all is nothing to read - cost: none found
+- Ruling: package fix round applied F1-F5, 132 pass 0 fail, tsc clean for the package - a follow-up applies R1 and R2 before the package is reviewed again - cost: one extra round on a defect my own spec wording created
+- tests full passed=142 failed=1 skipped=0 seconds=2.0
+- tests full passed=143 failed=0 skipped=0 seconds=1.6
+- tests full passed=143 failed=0 skipped=0 seconds=1.7
+- checkpoint T2 f7dc5c983d blob reader
+- checkpoint T3 572aa8df9f rendering
+- checkpoint T4 6538d51711 the extension
+- checkpoint T5 10bd86517b integration
+- Ruling: the tracker never patches polyfill.json in the working tree - the patched bytes exist only on the branch it pushes for the PR - cost: running the tracker locally leaves nothing to inspect unless you read the PR it opens
+- checkpoint T8 965c007d91 state and idempotence
+- checkpoint T9 24cff9a211 gh calls and the entry
+- Ruling: polyfill-tests.yml probes in fixture mode, track.yml runs the live probe and sets TEHAS_REQUIRE_UPSTREAM=1 so the fixture-drift test fails loudly there and prints a skip line offline - cost: the per-PR job no longer detects an upstream release on its own
+- Ruling: cross-repo filing reads TEHAS_TRACKING_TOKEN and a missing one exits 2 naming it, never a silent skip and never github.token - cost: the scheduled tracker run is red until the owner adds that secret
+- Ruling: git switch -C plus push --force-with-lease so a closed proposal branch is reused not fatal - cost: a stale proposal branch is overwritten by the next run
+- Review: scripts package review BLOCK, 3 P1 5 P2, all eight ruled and dispatched to a fixer - cost: two extra rounds on the tracker, which is where the outward risk lives
+- Ruling: no test may reach the network - gh and git go through seams with canned answers, and the one real-git case runs in a /tmp repo with no remote and GH_TOKEN unset - cost: a real gh invocation is never exercised by the suite, only by the scheduled job
+- tests full passed=157 failed=0 skipped=0 seconds=0.8
+- tests full passed=157 failed=0 skipped=0 seconds=0.8
+- Ruling: accept the read-only fallback - a tehas title read may use gh's own credential when TEHAS_TRACKING_TOKEN is unset so a local dry run works, while the filing call never falls back - cost: a local dry run can report what it would file using a credential CI does not have
+- checkpoint T6 9393e300cc capability probe
+- checkpoint T6b 1b1ed1833b probe fixtures
+- checkpoint T7 b7720b3dbf tracking decision
+- checkpoint T8 984a654b6c state and idempotence
+- checkpoint T9 a635b4194b gh calls and the entry
+- tests full passed=157 failed=0 skipped=0 seconds=1.8
+- Verified: gh api repos/trail-openers/pi-rukas/releases returns releases (not tags only), newest v0.14.53, of which v0.14.51 to v0.14.53 are prereleases - the trackers read of /releases is sound
+- Ruling: draft releases are never listed, prereleases are, and the tracker names the tag it chose in the PR and issue body so a prerelease is visible - cost: a prerelease can become a records until value
+- Ruling: scripts/fixtures/capabilities holds only real upstream snapshots, scripts/fixtures/synthetic holds the fixture that declares issueComments, and a test runs the exact CI probe command and asserts exit 0 - cost: none found
+- Ruling: containment scans every semver tag at or after from oldest first with no cap, the 12 window is for the probe only, and a full 100-entry releases page exits 2 rather than missing an older containing release - cost: a merged package with no containing release costs one compare call per upstream release, roughly 54 today
+- Ruling: localRepo names the repository from GITHUB_REPOSITORY, then from `git remote get-url origin`, and an unresolvable repository exits 2 naming GITHUB_REPOSITORY rather than filing at whatever directory the process stands in - cost: a run that considers a PR needs a git call even to name its repository
+- Ruling: TrackOpts.listOpen is (repo, kind) -> string[], read lazily and memoized once per repository and kind per run, so a PR-only run never lists tehas issues and a reminder never lists PRs - cost: the seam shape the plan printed changed
+- Ruling: a real run reaches tehas only with TEHAS_TRACKING_TOKEN, with no fallback to the workflows own token; a dry run may read with whatever credential gh already has - cost: a dry run on a runner with no cross-repo secret sees no open tehas titles
+- Ruling: the once-per-session latch is set only once the environment has something to read, superseding the earlier before-the-read ruling - cost: a session with no attachment directories keeps its attempt
+- Ruling: keep that code and state the narrower rule in S4 - the attempt is spent once at least one attachments directory is named, so a named directory with no comments entry still spends it - cost: a host that names a directory before writing comments.json gets no line
+- Ruling: writeBranch fetches the proposal branch before resetting it, because push --force-with-lease leases against refs/remotes/origin/<branch> and a closed proposal branch otherwise fails with stale info - cost: one extra git call per filed PR
+- Ruling: the no-network test rule allows a real-git test whose origin is a bare repository in /tmp, superseding the no-remote condition - the reuse path cannot be proven without a branch that genuinely exists on a remote - cost: two more git fixtures in track.test.ts
+- tests full passed=172 failed=0 skipped=0 seconds=1.0
+- checkpoint T4 2a68025e28 the extension
+- checkpoint T6 767ec4a5a9 capability probe
+- checkpoint T6b 1e1f7b1073 probe fixtures
+- checkpoint T8 edb51aeeca state and idempotence
+- checkpoint T9 6c536e0d10 gh calls and the entry
+- tests full passed=172 failed=0 skipped=0 seconds=0.7
+- Ruling: the latch rule is narrower than nothingToRead - the attempt is spent once at least one attachments directory is named, so a named directory with no comments entry spends it, and S4 now says that - cost: a session whose manifest gains a comments entry after the first turn never gets it
+- Ruling: tsconfig.json excludes test files, so bunx tsc --noEmit checks the shipped code only and the suite is checked by bun test - cost: a type error in a test surfaces as a test failure, not as a CI typecheck failure
+- tests full passed=175 failed=0 skipped=0 seconds=1.3
+- checkpoint T4 769abc177c the extension
+- checkpoint T6 29fd474e71 capability probe
+- checkpoint T9 f488c45784 gh calls and the entry
