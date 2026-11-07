@@ -1,0 +1,11 @@
+{
+  "name": "aaa",
+  "upstream": {
+    "issue": "trail-openers/pi-rukas#2020x",
+    "feature": "issueComments"
+  },
+  "from": "v0.14.0",
+  "state": "active",
+  "pr": null,
+  "until": null
+}
