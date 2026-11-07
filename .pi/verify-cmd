@@ -1,0 +1,3 @@
+# The gate, as CI runs it (.github/workflows/polyfill-tests.yml): the tests,
+# the types, and the capability probe on its fixtures.
+bun install --frozen-lockfile && bun run test && bunx tsc --noEmit && bun run scripts/capability_probe.ts --fixtures scripts/fixtures/capabilities
