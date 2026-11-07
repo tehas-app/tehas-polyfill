@@ -5,7 +5,7 @@
     "feature": "issueComments"
   },
   "from": "v0.14.0",
-  "state": "active",
-  "pr": null,
+  "state": "merged",
+  "pr": 2100,
   "until": null
 }
