@@ -1,0 +1,11 @@
+{
+  "name": "bbb-active",
+  "upstream": {
+    "issue": "trail-openers/pi-rukas#2020",
+    "feature": "issueComments"
+  },
+  "from": "v0.14.0",
+  "state": "active",
+  "pr": null,
+  "until": null
+}
