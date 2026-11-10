@@ -16,3 +16,8 @@ coverage/
 # Generated probe regressions: they import .superlite/probes/adapter.py, which is ignored, so
 # they cannot run for anyone else and are not part of this repository.
 tests/regression/
+
+# The factory's gate is tracked; the rest of .pi stays local.
+!.pi/
+.pi/*
+!.pi/verify-cmd
