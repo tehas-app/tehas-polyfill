@@ -22,10 +22,15 @@ export interface ProbeRow {
   fail: boolean;
 }
 
-/** What the upstream issue looks like right now. */
+/**
+ * What the upstream issue looks like right now. `labels` are the upstream issue's own label names,
+ * lower-cased, and decide.ts is what reads them: a closed issue carries them too, but only an open
+ * one's decide anything (spec S7's fourth case is the open-and-parked one).
+ */
 export interface UpstreamState {
   state: "open" | "closed";
   mergedPr: { number: number; mergeCommit: string } | null;
+  labels: string[];
 }
 
 /** The titles already open here, so the tracker never files the same thing twice (spec S7). */

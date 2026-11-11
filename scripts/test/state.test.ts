@@ -122,6 +122,20 @@ test("states_outside_scope: only active and merged are tracked", () => {
   expect(trackedPackages(root).map((p) => p.name).sort()).toEqual(["active", "merged"]);
 });
 
+test("test_no_parked_state: the labels rule files nothing, so no state is added (S9)", () => {
+  // A parked upstream issue (open, labelled not-taken-on) is a wait, not a state: the vocabulary
+  // stays the four S9 fixes, and the record this repository ships carries no candidate, blocked or
+  // labels key. Pinning it here is what stops a later run "helpfully" recording the label.
+  for (const state of ["candidate", "blocked", "parked"]) {
+    const root = newRoot();
+    writePolyfill(root, state, polyfillOf(state, state));
+    expect(trackedPackages(root)).toEqual([]);
+  }
+  const shipped = JSON.parse(readFileSync(REAL_POLYFILL, "utf8")) as Record<string, unknown>;
+  expect(Object.keys(shipped).sort()).toEqual(["from", "name", "pr", "state", "until", "upstream"]);
+  expect(shipped.state).toBe("active");
+});
+
 test("patch_keeps_key_order_and_two_space_indent", () => {
   const original = readFileSync(REAL_POLYFILL, "utf8");
   const patched = applyPatch(original, { state: "merged", pr: 2100 });

@@ -183,20 +183,40 @@ function field(value: unknown, key: string): unknown {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>)[key] : undefined;
 }
 
-/** The upstream issue, as `UpstreamState`: closed counts as merged only with a merge commit. */
+/**
+ * Label names, lower-cased, as the `gh api` issue response carries them: `labels` is an array of
+ * objects with a `name`. gh sends `[{name: "frozen", color: ..., id: ...}, ...]`, so reading the
+ * array itself instead of `name` would make every issue read as unlabelled.
+ */
+export function labelNames(labels: unknown): string[] {
+  if (!Array.isArray(labels)) return [];
+  const names: string[] = [];
+  for (const label of labels) {
+    const name = field(label, "name");
+    if (typeof name === "string" && name !== "") names.push(name.toLowerCase());
+  }
+  return names;
+}
+
+/**
+ * The upstream issue, as `UpstreamState`: closed counts as merged only with a merge commit.
+ * `labels` are the issue's own label names, lower-cased - the plain `gh api` issue read already
+ * carries them, so reading them costs no second call and no `--jq` projection.
+ */
 export function fetchUpstream(root: string, repo: string, upstreamIssue: string): UpstreamState {
   const issue = parseJson(runGh(root, issueArgs(repo, upstreamIssue)), `gh issue ${upstreamIssue}`) as Record<string, unknown>;
   const state = issue.state === "closed" ? "closed" : "open";
+  const labels = labelNames(issue.labels);
   const pull = typeof issue.pull_request === "object" && issue.pull_request !== null ? (issue.pull_request as Record<string, unknown>) : undefined;
   const mergedAt = pull?.merged_at;
   const mergeCommit = pull?.merge_commit_sha;
   // A closed issue with no merged pull request, or a merged one with no commit to look for, is
   // "closed without a merge" (spec S7's third case).
   if (mergedAt === null || mergedAt === undefined || typeof mergeCommit !== "string" || mergeCommit === "") {
-    return { state, mergedPr: null };
+    return { state, mergedPr: null, labels };
   }
   const number = Number(pull?.number ?? issueNumber(upstreamIssue));
-  return { state, mergedPr: { number: Number.isInteger(number) ? number : 0, mergeCommit } };
+  return { state, mergedPr: { number: Number.isInteger(number) ? number : 0, mergeCommit }, labels };
 }
 
 /**
