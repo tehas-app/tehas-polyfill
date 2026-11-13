@@ -1,6 +1,8 @@
 # Polyfill process
 
-Use this when tehas needs a pi-rukas feature before a pi-rukas release ships it. A polyfill is a pi extension that gives tehas the feature in the sandbox image until pi-rukas has it natively. It is then removed.
+Use this when tehas needs a pi-rukas feature before a pi-rukas release ships it. A polyfill is a pi extension that gives a cycle the feature in a sandbox image that carries it, until pi-rukas has it natively. It is then removed.
+
+pi-rukas is ours, so the first answer to a missing feature is the upstream change in pi-rukas. A polyfill is for the gap until that release, not a second home for the feature.
 
 ## 1. File the upstream issue
 
@@ -16,7 +18,9 @@ Label it `tehas-polyfill`.
 
 Open the tehas issue. It depends on the upstream issue.
 
-Its capability check accepts **either** the upstream feature in `--capabilities` **or** the polyfill's image label (`tehas.rukas.polyfills`). tehas code never checks for the polyfill alone, so retiring it needs no change in tehas.
+Its capability check accepts **either** the upstream feature in `--capabilities` **or** the polyfill's entry in the image label `tehas.rukas.polyfills` (`<name>@<version>`). tehas code never checks for the polyfill alone, so retiring it needs no change in tehas.
+
+tehas has built this check for `issue-comments` since v0.25.0 (`console/cycle/src/gives.rs`, `polyfill_label`; `host/docs/operating.md`). tehas only reads the label. It does not write it (step 5).
 
 ## 3. Decide whether to polyfill
 
@@ -58,11 +62,17 @@ packages/<name>/
 
 ## 5. Use it
 
-- tehas pins `TEHAS_POLYFILL_VERSION=vX.Y.Z` in `host/sandbox/versions.env`.
-- `host/sandbox/build.sh` reads the base image's `--capabilities` and, for each polyfill whose state is `active` or `merged`:
-  - if the upstream feature is **not** listed, installs the package into `~/.pi/agent/extensions/<name>` and adds `<name>@<version>` to the image label `tehas.rukas.polyfills`;
-  - if the feature **is** listed, skips it and says so in the build output. The native feature takes over, and the two are never both active.
-- `tehas status` shows the active polyfills. A log or bug report from a polyfilled image names them, so upstream bugs are filed against what actually ran.
+tehas does not install polyfills. It keeps no version pin for this repository: there is no `TEHAS_POLYFILL_VERSION`, and its only pin file, `host/versions.env`, follows pi-rukas by its newest tag (`PI_RUKAS_FOLLOW=release:0`) and names this repository nowhere. `host/sandbox/build.sh` installs no package from here and writes no `tehas.rukas.polyfills` label. See [docs/tehas-pin-reality.md](docs/tehas-pin-reality.md).
+
+A polyfill reaches a cycle only through a sandbox image built to carry it, by the operator of that host:
+
+- Install the package from a release tag of this repository into `~/.pi/agent/extensions/<name>` in the image.
+- Add `<name>@<version>` to the image label `tehas.rukas.polyfills`. Without the label, tehas does not know the image carries the polyfill and does not offer the feature.
+- Install it only while the image's `pi-rukas-headless --capabilities` does **not** list the upstream feature. The native feature and the polyfill are never both active.
+
+The image's label names what ran, so a log or bug report from a polyfilled image is filed against the polyfill, not against pi-rukas.
+
+Making tehas's own sandbox build install polyfills is not planned. If that changes, it is tehas-side work in tehas-app/tehas, and this step changes with it.
 
 ## 6. Track upstream
 
@@ -76,16 +86,18 @@ The workflow only opens PRs and issues. It never merges, and it never applies `t
 
 ## 7. Retire
 
+A polyfill is retired when a pi-rukas release ships its feature. No pin needs to move. Images built after that release list the feature in `--capabilities`, because tehas follows the newest pi-rukas tag.
+
 The retirement issue is worked like any other:
 
 1. **Check that upstream behaves the same.** Run the polyfill's tests against the native feature on the `until` release. If they differ, fix pi-rukas or change tehas, and retirement waits.
-2. **Move tehas's pi-rukas pin to `until` or later.** The sandbox build now skips the polyfill by itself (step 5).
-3. **Remove it from tehas.** A tehas test fails while the pinned polyfill release still carries a package whose `until` is at or below the pinned pi-rukas, and names it. Because of step 2's either/or check, tehas code needs no change.
-4. **Remove it here.** Delete `packages/<name>/` and record it in the CHANGELOG. Release, and move tehas's `TEHAS_POLYFILL_VERSION` to that release.
+2. **Drop it from the images that carry it.** Any image that installs the package and lists the feature rebuilds without the package and without its label entry. tehas then answers from the native feature alone, so tehas code needs no change (step 2).
+3. **Remove it here.** Delete `packages/<name>/`, record it in the CHANGELOG and release.
 
 ## Rules
 
 - One polyfill per upstream issue, named after its feature.
 - A polyfill does what the upstream issue specifies and no more. A new need goes upstream first.
 - A polyfill still `active` 60 days after it was added gets a reminder issue on tehas from the tracking workflow.
-- Versions are pinned by release tag, never by commit hash.
+- A release of this repository is named by its tag, never by a commit hash.
+- tehas's own stand-ins (`lib/polyfill-<feature>.sh`, `scripts/polyfills.sh`) are a different mechanism and live in tehas. A tehas change that adds a stand-in for something pi, pi-rukas or gh does not provide is recorded in [docs/tehas-stand-ins.md](docs/tehas-stand-ins.md), with its tehas ticket and upstream reference, as a package candidate here or as out of scope here with the reason. A package is made only by steps 1 to 4. The four states above stay the only states.

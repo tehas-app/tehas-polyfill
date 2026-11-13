@@ -3,6 +3,13 @@
 Versions are tagged (`v0.1.0`) and carry every package in this repository. tehas keeps no version
 pin for this store today; tehas-app/tehas-polyfill#3 records what it does instead.
 
+## Unreleased
+
+- `PROCESS.md` — steps 2, 5 and 7 and the Rules describe tehas as it is. tehas installs no polyfill and
+  keeps no pin for this repository; an image carries a polyfill only when its operator builds it
+  in and names it in the `tehas.rukas.polyfills` label, which tehas reads (since v0.25.0).
+  Retirement follows the pi-rukas release that ships the feature, with no pin to move (#6).
+
 ## v0.1.0
 
 - `packages/issue-comments` — new. A pi extension that injects the issue's and its pull

@@ -8,7 +8,8 @@ retired, and `docs/` for the design.
 
 tehas-polyfill holds pi extensions that give tehas a pi-rukas feature before a
 pi-rukas release ships it. Each one is removed once pi-rukas has the feature
-natively. tehas builds the active ones into its sandbox image.
+natively. tehas installs none: an image carries one only when its operator
+builds it in and names it in the `tehas.rukas.polyfills` label (PROCESS.md, step 5).
 
 | Path | What it is |
 | --- | --- |

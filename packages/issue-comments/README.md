@@ -41,13 +41,12 @@ Nothing is written to stderr when `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` is unset or emp
 
 ## How tehas uses it
 
-PROCESS.md step 5. `host/sandbox/build.sh` installs this package into
-`~/.pi/agent/extensions/issue-comments` and adds `issue-comments@<version>` to the image label
-`tehas.rukas.polyfills`, and it **skips the package when the base image's
-`pi-rukas-headless --capabilities` already lists `issueComments`** — the native feature and the
-polyfill are never both active. tehas keeps no `TEHAS_POLYFILL_VERSION` pin for this repository —
-a search of the tehas tree finds no such variable — and tehas-app/tehas-polyfill#3 records what
-tehas does not do yet, while #6 settles the PROCESS.md wording this section follows.
+PROCESS.md step 5. tehas does not install this package and keeps no pin for this repository. An
+image carries it only when its operator installs it into `~/.pi/agent/extensions/issue-comments`
+and adds `issue-comments@<version>` to the image label `tehas.rukas.polyfills`, and only while the
+image's `pi-rukas-headless --capabilities` does not list `issueComments`: the native feature and
+the polyfill are never both active. tehas reads that label (since v0.25.0) and then offers the
+comments retry, run with `PI_ENSEMBLE_REPEAT_PARK=0` (`host/docs/operating.md`).
 
 ## What it cannot match
 

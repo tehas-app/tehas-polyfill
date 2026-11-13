@@ -61,8 +61,7 @@ test("the retirement body names what a pin-less host can read, and files no pin 
   const actions = decidePackage(mergedPkg, closedWithMerge, ["v0.15.0"], 40, nothingOpen);
   expect(kinds(actions)).toEqual(["pr-released", "issue-retire"]);
   const body = actions[1]!.body;
-  // tehas keeps no version pin and writes no tehas.rukas.polyfills label (tehas-app/tehas-polyfill#3
-  // records what it does instead), so the checkable fact is the base image's capabilities answer,
+  // tehas keeps no version pin and writes no tehas.rukas.polyfills label (it only reads one), so the checkable fact is the base image's capabilities answer,
   // which is what tehas scripts/polyfills.sh decides expiry from.
   expect(body).toContain("/opt/pi-rukas/bin/pi-rukas-headless --capabilities");
   expect(body).toContain("issueComments");
