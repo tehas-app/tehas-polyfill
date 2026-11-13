@@ -16,6 +16,7 @@ import {
   defaultBranchArgs,
   fetchBranchArgs,
   issueArgs,
+  labelNames,
   listOpenArgs,
   listTagsArgs,
   listTags,
@@ -140,9 +141,11 @@ function gitFailingAt(captured: Captured, failAt: string): (args: string[]) => s
   };
 }
 
-const closedMerged = () => ({ state: "closed" as const, mergedPr: { number: 2100, mergeCommit: "abc123" } });
-const closedUnmerged = () => ({ state: "closed" as const, mergedPr: null });
-const openUpstream = () => ({ state: "open" as const, mergedPr: null });
+const closedMerged = () => ({ state: "closed" as const, mergedPr: { number: 2100, mergeCommit: "abc123" }, labels: [] });
+const closedUnmerged = () => ({ state: "closed" as const, mergedPr: null, labels: [] });
+const openUpstream = () => ({ state: "open" as const, mergedPr: null, labels: [] });
+/** The upstream issue as trail-openers/pi-rukas#1239 reads: open, labelled `frozen`. */
+const frozenUpstream = () => ({ state: "open" as const, mergedPr: null, labels: ["frozen"] });
 const nothingOpen = openBoth({ prs: [], issues: [] });
 
 /** stdout of a run, so the printed plan can be asserted without a console. */
@@ -321,6 +324,60 @@ test("nothing_to_do: a run with no action says so and exits 0", () => {
   expect(out).toContain("issue-comments: nothing to do");
   expect(captured.prs).toEqual([]);
   expect(captured.git).toEqual([]);
+});
+
+test("test_frozen_upstream_files_nothing: an open issue labelled frozen files nothing and names the label", () => {
+  const root = agedRoot("2026-08-26T12:00:00 +0000");
+  const before = recordText(root);
+  const captured = capture();
+
+  let code = 0;
+  const out = outputOf(() => {
+    withTehasToken(() => {
+      code = run(root, seams(captured, { dryRun: false, fetchUpstream: frozenUpstream, listOpen: nothingOpen }));
+    });
+  });
+
+  // 90 days old: without the label this run files a reminder. With it, it files nothing at all.
+  expect(code).toBe(0);
+  expect(captured.prs).toEqual([]);
+  expect(captured.issues).toEqual([]);
+  expect(captured.git).toEqual([]);
+  expect(out).toContain("nothing to do");
+  // The line names the upstream signal it read, so a reader tells "parked" from "not overdue".
+  expect(out).toContain("open and not taken on");
+  expect(out).toContain("frozen");
+  expect(recordText(root)).toBe(before);
+});
+
+test("test_unfreeze_is_tracked_again: removing the label brings the package back on the next run", () => {
+  // Both directions come from recomputing every run: the tracker stores nothing about the label, so
+  // a wrong reading is not permanent and polyfill.json never has to change.
+  const root = agedRoot("2026-08-26T12:00:00 +0000");
+
+  const parked = capture();
+  let parkedCode = 0;
+  const parkedOut = outputOf(() => {
+    withTehasToken(() => {
+      parkedCode = run(root, seams(parked, { dryRun: false, fetchUpstream: frozenUpstream, listOpen: nothingOpen }));
+    });
+  });
+  expect(parkedCode).toBe(0);
+  expect(parked.issues).toEqual([]);
+  expect(parkedOut).toContain("frozen");
+
+  // Upstream removes the label; the same record, at the same age, is reminder-eligible again.
+  const thawed = capture();
+  let thawedCode = 0;
+  const thawedOut = outputOf(() => {
+    withTehasToken(() => {
+      thawedCode = run(root, seams(thawed, { dryRun: false, fetchUpstream: openUpstream, listOpen: nothingOpen }));
+    });
+  });
+  expect(thawedCode).toBe(0);
+  expect(thawed.issues.map((i) => i.title)).toEqual([REMIND_TITLE]);
+  expect(thawedOut).toContain(`filed issue "${REMIND_TITLE}"`);
+  expect(JSON.parse(recordText(root)).state).toBe("active");
 });
 
 test("merged package: the first containing tag becomes until and the retire issue is filed", () => {
@@ -556,8 +613,21 @@ test("test_no_tehas_label: no argument list names a label, and none merges", () 
   expect(lists[6].slice(0, 2)).toEqual(["issue", "create"]);
 });
 
-test("test_list_open_names_a_limit: gh pr|issue list does not stop at the default 30 titles", () => {
-  for (const kind of ["pr", "issue"] as const) {
+test("the upstream issue read asks for the issue itself, whose answer already carries labels", () => {
+  // The labels rule is only real if the response the code reads actually has them: the plain
+  // `gh api repos/<repo>/issues/<n>` answer carries `labels`, and a `--jq`/`--field` projection that
+  // did not name them would make every issue read as unlabelled. Pinning the shape here is what
+  // keeps that read a read.
+  expect(issueArgs("trail-openers/pi-rukas", "trail-openers/pi-rukas#2020")).toEqual(["api", "repos/trail-openers/pi-rukas/issues/2020"]);
+  expect(labelNames([{ name: "Frozen" }, { name: "bug" }])).toEqual(["frozen", "bug"]);
+  // A missing or malformed labels array reads as no labels, never as a name that suppresses.
+  expect(labelNames(undefined)).toEqual([]);
+  expect(labelNames(null)).toEqual([]);
+  expect(labelNames("frozen")).toEqual([]);
+  expect(labelNames([null, "frozen", { name: "" }, {}, { title: "frozen" }])).toEqual([]);
+});
+
+test("test_list_open_names_a_limit: gh pr|issue list does not stop at the default 30 titles", () => {  for (const kind of ["pr", "issue"] as const) {
     const args = listOpenArgs(LOCAL, kind);
     expect(args).toContain("--limit");
     const limit = Number(args[args.indexOf("--limit") + 1]);

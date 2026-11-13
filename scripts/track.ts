@@ -10,7 +10,7 @@
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { containsCommit, decidePackage } from "./lib/decide";
+import { containsCommit, decidePackage, upstreamSignal } from "./lib/decide";
 import { compareStatus, defaultBranch, fetchUpstream, filePr, gitOf, issueRepo, listTags, localRepo, openIssue, openTitles, prBranch, requireTehasToken, tehasRepo } from "./lib/forge";
 import { applyPatch, firstCommitAgeDays, trackedPackages } from "./lib/state";
 import { isReleaseTag, releasesAtOrAfter } from "./lib/releases";
@@ -188,7 +188,10 @@ function trackPackage(root: string, pkg: PolyfillRecord, o: TrackRunOpts, world:
 
   const actions = decidePackage(pkg, up, contained, ageDays, open);
   if (actions.length === 0) {
-    say(`${pkg.name}: nothing to do`);
+    // The upstream signal the decision read, so a reader can tell "open and parked" from "open, not
+    // overdue" without a filed issue. `upstreamSignal` names the closed states too, but a closed
+    // package always files something here, so the line a run prints is an open one's.
+    say(`${pkg.name}: nothing to do (${upstreamSignal(up)})`);
     return;
   }
 

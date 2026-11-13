@@ -2,7 +2,7 @@
 // PROCESS.md step 6. Titles are matched exactly, because idempotence is by title.
 
 import { expect, test } from "bun:test";
-import { containsCommit, decidePackage } from "../lib/decide";
+import { containsCommit, decidePackage, upstreamSignal } from "../lib/decide";
 import type { OpenTitles, PolyfillRecord, TrackAction, UpstreamState } from "../lib/types";
 
 const base: PolyfillRecord = {
@@ -22,9 +22,11 @@ const mergedWithUntil: PolyfillRecord = { ...mergedPkg, until: "v0.15.0" };
 const releasedPkg: PolyfillRecord = { ...mergedPkg, state: "released", until: "v0.15.0" };
 const declinedPkg: PolyfillRecord = { ...base, state: "declined" };
 
-const closedWithMerge: UpstreamState = { state: "closed", mergedPr: { number: 2100, mergeCommit: "abc123" } };
-const closedWithoutMerge: UpstreamState = { state: "closed", mergedPr: null };
-const openUpstream: UpstreamState = { state: "open", mergedPr: null };
+const closedWithMerge: UpstreamState = { state: "closed", mergedPr: { number: 2100, mergeCommit: "abc123" }, labels: [] };
+const closedWithoutMerge: UpstreamState = { state: "closed", mergedPr: null, labels: [] };
+const openUpstream: UpstreamState = { state: "open", mergedPr: null, labels: [] };
+/** trail-openers/pi-rukas#1239 as it reads today: open, `frozen`, no pull request. */
+const frozenUpstream: UpstreamState = { state: "open", mergedPr: null, labels: ["frozen"] };
 const nothingOpen: OpenTitles = { prs: [], issues: [] };
 
 function kinds(actions: TrackAction[]): string[] {
@@ -33,6 +35,62 @@ function kinds(actions: TrackAction[]): string[] {
 
 test("open_upstream_does_nothing: an open issue that is not overdue files nothing", () => {
   expect(decidePackage(activePkg, openUpstream, [], 30, nothingOpen)).toEqual([]);
+});
+
+test("frozen_upstream_files_nothing: an open issue labelled frozen is a parked proposal", () => {
+  // trail-openers/pi-rukas#1239: open, labelled `frozen`, no linked pull request, its own body says
+  // nothing works on it until a person labels it. To the tracker it must not read as work in flight.
+  expect(decidePackage(activePkg, frozenUpstream, [], 90, nothingOpen)).toEqual([]);
+  // Not even the reminder, and not for a merged record either: nothing is filed about the polyfill.
+  expect(decidePackage(activePkg, frozenUpstream, [], 60, nothingOpen)).toEqual([]);
+  expect(decidePackage(mergedPkg, frozenUpstream, [], 90, nothingOpen)).toEqual([]);
+});
+
+test("a not-taken-on reading is not permanent: the same record is tracked again without the label", () => {
+  // Both directions come from recomputing every run, so a wrong reading lasts one run. Upstream
+  // un-freezes the issue (or a person adds any other label) and the next run reminds again.
+  expect(decidePackage(activePkg, frozenUpstream, [], 90, nothingOpen)).toEqual([]);
+  const actions = decidePackage(activePkg, openUpstream, [], 90, nothingOpen);
+  expect(actions.map((action) => action.kind)).toEqual(["issue-reminder"]);
+});
+
+test("an issue that gains the frozen label stops being tracked on the next run", () => {
+  const before = decidePackage(activePkg, openUpstream, [], 90, nothingOpen);
+  expect(before.map((action) => action.kind)).toEqual(["issue-reminder"]);
+  expect(decidePackage(activePkg, frozenUpstream, [], 90, nothingOpen)).toEqual([]);
+});
+
+test("a label that is not on the not-taken-on list still counts as taken on", () => {
+  // Only an explicit parked label suppresses tracking: `wontfix` is an open refusal, which is a
+  // second rule this tracker does not apply, and any other label carries no decision here.
+  for (const labels of [["wontfix"], ["bug"], ["enhancement", "needs-repro"]]) {
+    const actions = decidePackage(activePkg, { state: "open", mergedPr: null, labels }, [], 90, nothingOpen);
+    expect(actions.map((action) => action.kind)).toEqual(["issue-reminder"]);
+  }
+});
+
+test("the frozen label is matched case-insensitively", () => {
+  expect(decidePackage(activePkg, { state: "open", mergedPr: null, labels: ["Frozen"] }, [], 90, nothingOpen)).toEqual([]);
+});
+
+test("a merged pull request outranks the frozen label", () => {
+  // A merged PR is itself proof upstream took the work on, so the gate sits only on the open branch:
+  // a frozen-labelled issue whose PR merged still walks merged, then released and retired.
+  expect(decidePackage(activePkg, { state: "closed", mergedPr: { number: 2100, mergeCommit: "abc123" }, labels: ["frozen"] }, [], 10, nothingOpen).map((a) => a.kind)).toEqual(["pr-merged"]);
+  expect(decidePackage(mergedPkg, { state: "closed", mergedPr: { number: 2100, mergeCommit: "abc123" }, labels: ["frozen"] }, ["v0.15.0"], 40, nothingOpen).map((a) => a.kind)).toEqual(["pr-released", "issue-retire"]);
+  // Closed without a merge is still a decline, whatever labels it carries.
+  expect(decidePackage(activePkg, { state: "closed", mergedPr: null, labels: ["frozen"] }, [], 10, nothingOpen).map((a) => a.kind)).toEqual(["pr-declined", "issue-decide"]);
+});
+
+test("upstreamSignal names the upstream signal a no-action decision read", () => {
+  // So a reader can tell "open and taken on, not overdue" from "open and parked" without a filed issue.
+  expect(upstreamSignal(openUpstream)).toBe("open and taken on");
+  expect(upstreamSignal(frozenUpstream)).toContain("open and not taken on");
+  expect(upstreamSignal(frozenUpstream)).toContain("frozen");
+  expect(upstreamSignal({ state: "open", mergedPr: null, labels: ["Frozen", "wontfix"] })).toContain("frozen");
+  expect(upstreamSignal({ state: "open", mergedPr: null, labels: ["wontfix"] })).toBe("open and taken on");
+  expect(upstreamSignal(closedWithMerge)).toContain("merged pull request");
+  expect(upstreamSignal(closedWithoutMerge)).toContain("closed without a merge");
 });
 
 test("active plus a merged upstream PR opens the merged PR here", () => {

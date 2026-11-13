@@ -39,6 +39,26 @@ bun run scripts/track.ts [--dry-run]
   a dry run is not offline, it is only non-filing.
 - Idempotence reads open titles with `--limit 200`, because `gh pr list` and `gh issue list` stop at
   30 by default and an older proposal would otherwise look unfilable-by-title in name only.
+- **An upstream issue that is open and explicitly not taken on is not tracked.** The one `gh api
+  repos/<upstream>/issues/<n>` read already carries the issue's `labels`, so the tracker reads them
+  beside its state and its pull request. A label in `NOT_TAKEN_ON_LABELS` (`scripts/lib/decide.ts`
+  — `frozen`, matched case-insensitively) means the proposal is parked: for such an issue the run
+  files **nothing** — no retire issue, no decide issue, and no 60-day reminder — and its line says
+  `nothing to do (open and not taken on (frozen))` so a reader can tell that from "open, not
+  overdue". The set lives in that one constant, not scattered through the decisions.
+  - A missing or empty label list is a **wait**, not a decline. Only a closed-without-a-merge
+    becomes `declined`, as PROCESS.md step 6.3 says; an open issue labelled `wontfix` is still
+    tracked, because mapping an open refusal to a state is a different rule.
+  - The gate sits only on the open branch: a merged pull request is itself proof upstream took the
+    work on, so a frozen-labelled issue whose PR merged still goes merged, then released.
+  - The reading is recomputed from the labels every run and nothing about them is stored, so both
+    directions are free: an issue that gains the label stops being tracked on the next run, and one
+    a person un-freezes is tracked again (reminder-eligible at 60 days) with no change to
+    `polyfill.json`. A reminder an earlier run filed before the label appeared stays open — the
+    tracker opens issues and never closes them.
+  - The 60-day reminder in PROCESS.md is written unconditionally, and this is the deliberate
+    exception to it: tehas polyfills only work upstream has taken on, so a reminder that reads as
+    though a parked proposal had moved would ask a human to wait on nothing.
 - The commit step names its own committer identity: `-c user.name=<name> -c user.email=<email>`,
   taken from `TEHAS_TRACKER_GIT_NAME` and `TEHAS_TRACKER_GIT_EMAIL` when they are set, and otherwise
   the defaults `tehas-polyfill-tracker` and `tehas-polyfill-tracker@users.noreply.github.com`. A

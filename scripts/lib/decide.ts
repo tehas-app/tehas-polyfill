@@ -9,6 +9,15 @@ import type { OpenTitles, PolyfillRecord, TrackAction, UpstreamState } from "./t
 const REMINDER_AFTER_DAYS = 60;
 /** gh compare statuses that mean a release already carries the merge commit (spec S7). */
 const CONTAINED_STATUSES = new Set(["behind", "identical"]);
+/**
+ * Upstream labels that mean "this issue is parked: nobody is working on it" (trail-openers/pi-rukas
+ * uses `frozen` for exactly that). Labels are repository-local, so the set lives here rather than
+ * scattered through the decisions, and `wontfix` is deliberately absent: an open refusal is not a
+ * decline, and PROCESS.md step 6.3 maps only a closed-without-a-merge to `declined`.
+ */
+export const NOT_TAKEN_ON_LABELS = new Set(["frozen"]);
+/** The upstream signal a parked decision names, so a reader can tell it from "open, not overdue". */
+export const PARKED_SIGNAL = "open and not taken on";
 
 interface MergedPr {
   number: number;
@@ -18,6 +27,30 @@ interface MergedPr {
 /** A `gh api .../compare/<tag>...<sha>` status that says the tag contains the commit. */
 export function containsCommit(status: string): boolean {
   return CONTAINED_STATUSES.has(status);
+}
+
+/**
+ * Whether an upstream issue is taken on. Only an explicit not-taken-on label says otherwise: a
+ * missing or empty label list is a wait, not a decline (labels are repository-local, so their
+ * absence carries no information). Compared case-insensitively, because a label's spelling belongs
+ * to whoever created it.
+ */
+export function takenOn(labels: string[]): boolean {
+  return !labels.some((label) => NOT_TAKEN_ON_LABELS.has(label.toLowerCase()));
+}
+
+/**
+ * The upstream signal for an open issue, as a run reports it: the label it read when it decided to
+ * file nothing, so "open and parked" is distinguishable from "open, not overdue" without a new
+ * filed issue. A parked issue keeps its labels in the order upstream lists them.
+ */
+export function upstreamSignal(up: UpstreamState): string {
+  if (up.state !== "open") return up.mergedPr === null ? "closed without a merge" : "closed with a merged pull request";
+  if (takenOn(up.labels)) return "open and taken on";
+  const parked = up.labels.filter((label) => NOT_TAKEN_ON_LABELS.has(label.toLowerCase()));
+  // The names are lower-cased on the way out: they are quoted into a log line, and a name in some
+  // other spelling is a string a reader cannot search for.
+  return `${PARKED_SIGNAL} (${parked.map((label) => label.toLowerCase()).join(", ")})`;
 }
 
 /** `trail-openers/pi-rukas#2020`, as a PR title reads it: `pi-rukas#2020`. */
@@ -165,7 +198,13 @@ export function decidePackage(
     return fileable([releasedHere(pkg, mergedPr, until), retireIssue(pkg, until)], open);
   }
 
-  // Upstream is still open: the only action is the 60-day reminder, and only for an active record.
+  // Upstream is still open. An issue that is explicitly not taken on - a frozen proposal - files
+  // nothing at all, not even the reminder: PROCESS.md's 60-day reminder is a promise about work
+  // upstream has taken on, and tehas only polyfills work upstream has accepted. The reading is
+  // recomputed every run from the label it just read, so upstream removing the label has the
+  // package reminder-eligible again on the next run with no change to polyfill.json.
+  if (!takenOn(up.labels)) return [];
+  // The only action on an open, taken-on issue is the 60-day reminder, and only for an active record.
   if (pkg.state === "active" && ageDays >= REMINDER_AFTER_DAYS) return fileable([reminder(pkg, ageDays)], open);
   return [];
 }
