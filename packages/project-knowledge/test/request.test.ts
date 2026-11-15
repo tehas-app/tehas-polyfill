@@ -3,7 +3,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { readTitle } from "../issue.ts";
-import { buildRequest, toQuery } from "../request.ts";
+import { buildRequest, toModel, toQuery } from "../request.ts";
 import { STEPS } from "../roles.ts";
 import { BODY, BODY_MARKER, cleanup, scratch, TITLE, TITLE_MARKER, writeState } from "./helpers.ts";
 
@@ -39,6 +39,62 @@ describe("the title as search words", () => {
     expect(q).toBe("fails at https user pw host example 8443 x k v with sk ab 12");
     expect(q).not.toContain("://");
     expect(q).not.toContain("@");
+  });
+});
+
+describe("the model id as a source takes it", () => {
+  const FORMAT = /^[a-z0-9][a-z0-9.-]{0,62}[a-z0-9]$/;
+
+  test("lower case; any other character is a dash; repeats collapse", () => {
+    expect(toModel("Acme/Model-7:latest")).toBe("acme-model-7-latest");
+    expect(toModel("Org//Name::v1.5")).toBe("org-name-v1.5");
+    expect(toModel("model_x  b@2")).toBe("model-x-b-2");
+  });
+
+  test("a valid id is sent as it is", () => {
+    expect(toModel("example-model-2.1")).toBe("example-model-2.1");
+  });
+
+  test("leading and trailing dashes and dots are trimmed", () => {
+    expect(toModel("/.Model-7./")).toBe("model-7");
+    expect(toModel("..a.b..")).toBe("a.b");
+  });
+
+  test("letters outside a to z become dashes", () => {
+    expect(toModel("Mallí-Ä1")).toBe("mall-1");
+  });
+
+  test("at most 64 characters, and the cut leaves no dash or dot at the end", () => {
+    expect(toModel("a".repeat(100))).toBe("a".repeat(64));
+    const cut = toModel(`${"b".repeat(63)}-tail`) ?? "";
+    expect(cut).toBe("b".repeat(63));
+    expect(toModel(`${"c".repeat(63)}.d`)).toBe("c".repeat(63));
+  });
+
+  test("nothing left is no model", () => {
+    expect(toModel("")).toBeUndefined();
+    expect(toModel("///")).toBeUndefined();
+    expect(toModel(".-.")).toBeUndefined();
+    expect(toModel(undefined)).toBeUndefined();
+  });
+
+  test("one character left is no model, as a source refuses it", () => {
+    expect(toModel("X")).toBeUndefined();
+    expect(toModel(":x:")).toBeUndefined();
+  });
+
+  test("every id it gives matches the source's format", () => {
+    for (const m of ["Acme/Model-7:latest", "A.B", "ab", "Z".repeat(80), "x/".repeat(40), "é-ü-1-2"]) {
+      const out = toModel(m);
+      if (out !== undefined) expect(out).toMatch(FORMAT);
+    }
+  });
+
+  test("the body carries the normalised model", () => {
+    const body = buildRequest({ scope: undefined, issue: 1, row: STEPS.develop, model: "Acme/Model-7:latest", title: undefined });
+    expect(body.model).toBe("acme-model-7-latest");
+    const none = buildRequest({ scope: undefined, issue: 1, row: STEPS.develop, model: "::", title: undefined });
+    expect("model" in none).toBe(false);
   });
 });
 

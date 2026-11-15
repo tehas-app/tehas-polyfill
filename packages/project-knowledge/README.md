@@ -42,7 +42,10 @@ Any failure gives no block and one line. The session goes on as if the extension
  "q": "retry the upload when the store is busy"}
 ```
 
-`scope`, `model` and `q` are left out when not known. `model` is the session's model id. `q` is
+`scope`, `model` and `q` are left out when not known. `model` is the session's model id in the
+form `^[a-z0-9][a-z0-9.-]{0,62}[a-z0-9]$`: lower case, any other character a dash, repeated dashes
+one, no dash or dot at either end, at most 64 characters, left out when less than two are left.
+So `Acme/Model-7:latest` is sent as `acme-model-7-latest`. `q` is
 the issue's title as search words: letters and digits only, lower case, at most 200 characters.
 Nothing else of the issue is sent: no body, no comment, no prompt, no path, no branch name.
 `test/request.golden.json` is this request as a file, for a source's own tests.
