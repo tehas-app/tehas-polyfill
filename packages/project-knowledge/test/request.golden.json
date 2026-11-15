@@ -1,0 +1,11 @@
+{
+  "contract": 1,
+  "scope": "r_7k2m",
+  "issue": 412,
+  "step": "develop",
+  "kinds": ["convention", "environment", "review-feedback", "failure-pattern"],
+  "limit": 5,
+  "agent": "pi-rukas",
+  "model": "example-model-1",
+  "q": "retry the upload when the store is busy"
+}
