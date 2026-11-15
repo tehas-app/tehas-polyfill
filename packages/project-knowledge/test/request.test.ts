@@ -15,7 +15,7 @@ describe("the title as search words", () => {
   });
 
   test("letters of any script are kept", () => {
-    expect(toQuery("Päivitä käännös — 日本語 v2")).toBe("päivitä käännös 日本語 v2");
+    expect(toQuery("Päivitä käännös / 日本語 v2")).toBe("päivitä käännös 日本語 v2");
   });
 
   test("nothing left is no query", () => {

@@ -5,6 +5,10 @@ pin for this store today; tehas-app/tehas-polyfill#3 records what it does instea
 
 ## Unreleased
 
+- `packages/project-knowledge`: new. A pi extension that asks a project knowledge source the host
+  names for a short block of hypotheses, once per child session, and injects it as one message.
+  One try within a time limit; any failure gives no block and one line. Upstream pending (the
+  pi-rukas issue is not filed yet), feature `projectKnowledge`, state `active`, from `v0.14.78`.
 - `PROCESS.md` — steps 2, 5 and 7 and the Rules describe tehas as it is. tehas installs no polyfill and
   keeps no pin for this repository; an image carries a polyfill only when its operator builds it
   in and names it in the `tehas.rukas.polyfills` label, which tehas reads (since v0.25.0).
