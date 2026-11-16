@@ -122,6 +122,25 @@ test("states_outside_scope: only active and merged are tracked", () => {
   expect(trackedPackages(root).map((p) => p.name).sort()).toEqual(["active", "merged"]);
 });
 
+test("a record whose upstream issue is not filed yet is read but not tracked, with one line", () => {
+  // PROCESS.md step 1 files the upstream issue first. A record merged before it, with an issue such
+  // as "pending", would make the daily run fetch an issue that does not exist and exit 2.
+  const root = newRoot();
+  writePolyfill(root, "filed", polyfillOf("filed", "active"));
+  for (const issue of ["pending", "trail-openers/pi-rukas", "trail-openers/pi-rukas#", "#12"]) {
+    const name = `unfiled${issue.length}`;
+    writePolyfill(root, name, { ...polyfillOf(name, "active"), upstream: { issue, feature: name } });
+  }
+  let tracked: ReturnType<typeof trackedPackages> | undefined;
+  const lines = stderrLines(() => {
+    tracked = trackedPackages(root);
+  });
+  expect(readPackages(root).length).toBe(5);
+  expect(tracked!.map((p) => p.name)).toEqual(["filed"]);
+  expect(lines.length).toBe(4);
+  expect(lines).toContain('track: unfiled7: upstream issue "pending" is not filed yet (owner/repo#number): not tracked');
+});
+
 test("test_no_parked_state: the labels rule files nothing, so no state is added (S9)", () => {
   // A parked upstream issue (open, labelled not-taken-on) is a wait, not a state: the vocabulary
   // stays the four S9 fixes, and the record this repository ships carries no candidate, blocked or
