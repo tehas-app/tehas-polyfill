@@ -118,9 +118,21 @@ export function readPackages(root: string): PolyfillRecord[] {
   return records;
 }
 
-/** The records the tracker may act on: `active` or `merged` (spec S7). */
+/** An upstream issue that is filed: `owner/repo#number`. */
+const FILED_ISSUE = /^[\w.-]+\/[\w.-]+#\d+$/;
+
+/**
+ * The records the tracker may act on: `active` or `merged` (spec S7), with a filed upstream issue.
+ * A record merged before its issue is filed (PROCESS.md step 1), such as `"issue": "pending"`, is
+ * named and left out: fetching it would fail the whole run.
+ */
 export function trackedPackages(root: string): PolyfillRecord[] {
-  return readPackages(root).filter((record) => TRACKED_STATES.has(record.state));
+  return readPackages(root).filter((record) => {
+    if (!TRACKED_STATES.has(record.state)) return false;
+    if (FILED_ISSUE.test(record.upstreamIssue)) return true;
+    warn(`${record.name}: upstream issue "${record.upstreamIssue}" is not filed yet (owner/repo#number): not tracked`);
+    return false;
+  });
 }
 
 /**

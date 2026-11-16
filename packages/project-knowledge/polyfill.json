@@ -1,0 +1,11 @@
+{
+  "name": "project-knowledge",
+  "upstream": {
+    "issue": "pending",
+    "feature": "projectKnowledge"
+  },
+  "from": "v0.14.78",
+  "state": "active",
+  "pr": null,
+  "until": null
+}
