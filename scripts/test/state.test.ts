@@ -75,17 +75,17 @@ function gitRepoWithCommit(at: string): string {
 }
 
 test("readPackages reads the polyfill records this repository ships", () => {
-  const packages = readPackages(ROOT);
-  expect(packages).toContainEqual({
+  // The live record's state, pr and until move with the tracker's proposals, so only the fields
+  // that never change are pinned here; the state is one the record may hold.
+  const record = readPackages(ROOT).find((p) => p.name === "issue-comments");
+  expect(record).toMatchObject({
     name: "issue-comments",
-    state: "active",
     from: "v0.14.0",
     upstreamIssue: "trail-openers/pi-rukas#2020",
     upstreamFeature: "issueComments",
-    pr: null,
-    until: null,
     path: "packages/issue-comments/polyfill.json",
   });
+  expect(["active", "merged", "released", "declined"]).toContain(record!.state);
 });
 
 test("unreadable_polyfill_json: one stderr line naming the file, no throw, no package", () => {
@@ -152,7 +152,7 @@ test("test_no_parked_state: the labels rule files nothing, so no state is added 
   }
   const shipped = JSON.parse(readFileSync(REAL_POLYFILL, "utf8")) as Record<string, unknown>;
   expect(Object.keys(shipped).sort()).toEqual(["from", "name", "pr", "state", "until", "upstream"]);
-  expect(shipped.state).toBe("active");
+  expect(["active", "merged", "released", "declined"]).toContain(shipped.state);
 });
 
 test("patch_keeps_key_order_and_two_space_indent", () => {
