@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { probeReleases, releaseTagNames, releaseTags, releasesAtOrAfter } from "../lib/releases";
+import { probeReleases, releaseTagNames, releaseTags, releasesArgs, releasesAtOrAfter } from "../lib/releases";
 import type { PolyfillRecord } from "../lib/types";
 
 // scripts/lib/types.ts (T8) declares PolyfillRecord; these tests build their own
@@ -98,12 +98,30 @@ test("test_release_tag_names_drops_drafts_and_keeps_prereleases", () => {
 });
 
 test("test_a_full_releases_page_is_a_failure_not_a_short_list", () => {
-  // gh api returns one page of at most 100 releases. A full page means there is another one, and
-  // the older release that carries the merge commit could be in it.
+  // One flat page of 100 means there is another one, and the older release that carries the merge
+  // commit could be in it.
   const full = Array.from({ length: 100 }, (_, i) => ({ tag_name: `v0.14.${i}`, draft: false }));
   expect(() => releaseTagNames(full)).toThrow(/full page/);
   const partial = Array.from({ length: 99 }, (_, i) => ({ tag_name: `v0.14.${i}`, draft: false }));
   expect(releaseTagNames(partial)).toHaveLength(99);
+});
+
+test("test_every_page_of_a_paginated_listing_is_read", () => {
+  // `gh api --paginate --slurp` answers an array of pages. 100 and then 30: all 130, in order.
+  const first = Array.from({ length: 100 }, (_, i) => ({ tag_name: `v0.15.${129 - i}`, draft: false }));
+  const second = Array.from({ length: 30 }, (_, i) => ({ tag_name: `v0.15.${29 - i}`, draft: false }));
+  second[0] = { tag_name: "v0.15.29", draft: true };
+  const tags = releaseTagNames([first, second]);
+  expect(tags).toHaveLength(129);
+  expect(tags[0]).toBe("v0.15.129");
+  expect(tags[tags.length - 1]).toBe("v0.15.0");
+  expect(tags).not.toContain("v0.15.29");
+  expect(releasesArgs("trail-openers/pi-rukas")).toEqual([
+    "api",
+    "--paginate",
+    "--slurp",
+    "repos/trail-openers/pi-rukas/releases?per_page=100",
+  ]);
 });
 
 // The capabilities source the probe is handed: the file pi-rukas builds

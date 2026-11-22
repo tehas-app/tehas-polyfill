@@ -5,7 +5,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { releaseTagNames } from "./releases";
+import { releaseTagNames, releasesArgs } from "./releases";
 import type { OpenTitles, TrackOpts, UpstreamState } from "./types";
 
 const GH_TIMEOUT_MS = 60_000;
@@ -135,7 +135,7 @@ export function issueArgs(repo: string, upstreamIssue: string): string[] {
 }
 
 export function listTagsArgs(repo: string): string[] {
-  return ["api", `repos/${repo}/releases?per_page=100`];
+  return releasesArgs(repo);
 }
 
 export function compareArgs(repo: string, tag: string, sha: string): string[] {
@@ -198,25 +198,74 @@ export function labelNames(labels: unknown): string[] {
   return names;
 }
 
+export function issueEventsArgs(repo: string, upstreamIssue: string): string[] {
+  return ["api", "--paginate", "--slurp", `repos/${repo}/issues/${issueNumber(upstreamIssue)}/events?per_page=100`];
+}
+
+export function commitPullsArgs(repo: string, sha: string): string[] {
+  return ["api", `repos/${repo}/commits/${sha}/pulls`];
+}
+
+/**
+ * The commit that closed the issue last, from its events (`gh api --paginate --slurp`, an array of
+ * pages, or one flat page): the newest `closed` event that names a `commit_id`. A reopened and
+ * closed-again issue is named by its last close. `null` when the issue was closed by hand.
+ */
+export function closingCommit(events: unknown): string | null {
+  if (!Array.isArray(events)) return null;
+  const flat: unknown[] = events.every((page) => Array.isArray(page)) ? (events as unknown[][]).flat() : events;
+  let commit: string | null = null;
+  for (const event of flat) {
+    if (field(event, "event") === "reopened") commit = null;
+    if (field(event, "event") !== "closed") continue;
+    const id = field(event, "commit_id");
+    commit = typeof id === "string" && id !== "" ? id : null;
+  }
+  return commit;
+}
+
+/** The merged pull request whose merge commit is `sha`, from the commit's pulls; `null` when none. */
+export function mergedPullOf(pulls: unknown, sha: string): UpstreamState["mergedPr"] {
+  if (!Array.isArray(pulls)) return null;
+  for (const pull of pulls) {
+    const merged = field(pull, "merged_at");
+    const number = Number(field(pull, "number"));
+    if (typeof merged === "string" && merged !== "" && field(pull, "merge_commit_sha") === sha && Number.isInteger(number)) {
+      return { number, mergeCommit: sha };
+    }
+  }
+  return null;
+}
+
 /**
  * The upstream issue, as `UpstreamState`: closed counts as merged only with a merge commit.
  * `labels` are the issue's own label names, lower-cased - the plain `gh api` issue read already
  * carries them, so reading them costs no second call and no `--jq` projection.
+ *
+ * An issue is closed by a pull request's merge commit (`Closes #n`): its last `closed` event names
+ * that commit, and the commit's pulls name the merged pull request. A pull request tracked as the
+ * upstream issue itself carries its own merge. Anything else closed - by hand, or by a commit no
+ * merged pull request made - is "closed without a merge" (spec S7's third case).
  */
 export function fetchUpstream(root: string, repo: string, upstreamIssue: string): UpstreamState {
   const issue = parseJson(runGh(root, issueArgs(repo, upstreamIssue)), `gh issue ${upstreamIssue}`) as Record<string, unknown>;
   const state = issue.state === "closed" ? "closed" : "open";
   const labels = labelNames(issue.labels);
   const pull = typeof issue.pull_request === "object" && issue.pull_request !== null ? (issue.pull_request as Record<string, unknown>) : undefined;
-  const mergedAt = pull?.merged_at;
-  const mergeCommit = pull?.merge_commit_sha;
-  // A closed issue with no merged pull request, or a merged one with no commit to look for, is
-  // "closed without a merge" (spec S7's third case).
-  if (mergedAt === null || mergedAt === undefined || typeof mergeCommit !== "string" || mergeCommit === "") {
-    return { state, mergedPr: null, labels };
+  if (pull !== undefined) {
+    const mergedAt = pull.merged_at;
+    const mergeCommit = pull.merge_commit_sha;
+    if (mergedAt === null || mergedAt === undefined || typeof mergeCommit !== "string" || mergeCommit === "") {
+      return { state, mergedPr: null, labels };
+    }
+    const number = Number(pull.number ?? issueNumber(upstreamIssue));
+    return { state, mergedPr: { number: Number.isInteger(number) ? number : 0, mergeCommit }, labels };
   }
-  const number = Number(pull?.number ?? issueNumber(upstreamIssue));
-  return { state, mergedPr: { number: Number.isInteger(number) ? number : 0, mergeCommit }, labels };
+  if (state !== "closed") return { state, mergedPr: null, labels };
+  const commit = closingCommit(parseJson(runGh(root, issueEventsArgs(repo, upstreamIssue)), `gh issue ${upstreamIssue} events`));
+  if (commit === null) return { state, mergedPr: null, labels };
+  const mergedPr = mergedPullOf(parseJson(runGh(root, commitPullsArgs(repo, commit)), `gh commit ${commit} pulls`), commit);
+  return { state, mergedPr, labels };
 }
 
 /**
@@ -231,8 +280,8 @@ export function openTitles(root: string, repo: string, kind: "pr" | "issue", env
 }
 
 /**
- * pi-rukas release tags, newest first as GitHub lists them. A draft is not a release; a prerelease
- * is. A full page is a failure: an older release could carry the merge commit (spec S7).
+ * pi-rukas release tags, newest first as GitHub lists them, every page. A draft is not a release;
+ * a prerelease is (spec S7).
  */
 export function listTags(root: string, repo: string): string[] {
   return releaseTagNames(parseJson(runGh(root, listTagsArgs(repo)), "gh release list"));
