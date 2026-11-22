@@ -9,6 +9,11 @@ type Version = [number, number, number];
 /** GitHub's releases endpoint answers with one page of at most this many releases. */
 export const RELEASE_PAGE_SIZE = 100;
 
+/** The `gh` arguments that list every release of `repo`, all pages, as one array of pages. */
+export function releasesArgs(repo: string): string[] {
+  return ["api", "--paginate", "--slurp", `repos/${repo}/releases?per_page=${RELEASE_PAGE_SIZE}`];
+}
+
 function parseTag(tag: string): Version | undefined {
   const m = TAG.exec(tag);
   if (m === null) return undefined;
@@ -45,14 +50,19 @@ export function releasesAtOrAfter(from: string, tags: string[]): string[] {
 }
 
 /**
- * The tags one releases page lists. A draft is not a release anyone can install, so it is never
- * listed; a prerelease is a release and is. A page that comes back exactly full means upstream has
- * more releases than this call fetched and an older one could carry the merge commit, so that is a
- * failure rather than a shorter list.
+ * The tags of a releases listing. A draft is not a release anyone can install, so it is never
+ * listed; a prerelease is a release and is.
+ *
+ * The listing is every page, as `gh api --paginate --slurp` gives it: an array of pages, each an
+ * array of releases (`releasesArgs`). A single flat page is still read, but a flat page that comes
+ * back exactly full means upstream has more releases than that call fetched and an older one could
+ * carry the merge commit, so that is a failure rather than a shorter list.
  */
-export function releaseTagNames(releases: unknown): string[] {
-  if (!Array.isArray(releases)) return [];
-  if (releases.length >= RELEASE_PAGE_SIZE) {
+export function releaseTagNames(listing: unknown): string[] {
+  if (!Array.isArray(listing)) return [];
+  const paged = listing.length > 0 && listing.every((page) => Array.isArray(page));
+  const releases: unknown[] = paged ? (listing as unknown[][]).flat() : listing;
+  if (!paged && releases.length >= RELEASE_PAGE_SIZE) {
     throw new Error(`the releases call returned a full page of ${releases.length}: upstream has more releases than one page, and an older release could carry the merge commit`);
   }
   const tags: string[] = [];

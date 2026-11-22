@@ -5,6 +5,15 @@ pin for this store today; tehas-app/tehas-polyfill#3 records what it does instea
 
 ## Unreleased
 
+- `scripts/` - the tracker reads every page of pi-rukas releases (`gh api --paginate --slurp`).
+  pi-rukas passed 100 releases in 2026-11 and the single-page call made the daily run exit 2.
+- `scripts/` - an upstream issue closed by a pull request's merge commit (`Closes #n`) counts as
+  merged: its last `closed` event names the commit, and the commit's pulls name the merged pull
+  request. Before, only an upstream issue that was itself a pull request could count as merged, so
+  pi-rukas#2020, shipped in v0.14.100, read as closed without a merge.
+- `track.yml` - the tracker runs before the live probe. The probe fails by design when a release
+  lists a feature whose record still says active, and that failure stopped the tracker from
+  proposing the record's update.
 - `packages/project-knowledge`: new. A pi extension that asks a project knowledge source the host
   names for a short block of hypotheses, once per child session, and injects it as one message.
   One try within a time limit; any failure gives no block and one line. Upstream pending (the

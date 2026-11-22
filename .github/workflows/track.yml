@@ -49,6 +49,21 @@ jobs:
 
       - run: bun install
 
+      # The tracker runs first. The probe after it fails by design when a release lists a feature
+      # whose polyfill.json still says active, and the tracker's PR is what brings that record up to
+      # date, so a failing probe must not stop the tracker from proposing it.
+      # One run per schedule: read each tracked polyfill record, ask decide.ts what to
+      # file, file it. A proposed change lands on its own `track/<package>-<action>` branch and
+      # the PR that names it; the checkout is left as it was. A gh or git failure exits 2 and
+      # leaves every polyfill.json byte-identical. A dispatch is a dry run unless it says
+      # otherwise, and a dry run files nothing and writes no branch.
+      - run: bun run scripts/track.ts ${{ inputs.dry_run && '--dry-run' || '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # tehas-app/tehas is not this repository, so github.token cannot file there. Unset, the
+          # tracker exits 2 naming TEHAS_TRACKING_TOKEN and files nothing (spec S7).
+          TEHAS_TRACKING_TOKEN: ${{ secrets.TEHAS_TRACKING_TOKEN }}
+
       # This is the job with the schedule and the token, so it is the one that reaches upstream:
       # the live probe lists the releases and reads capabilities.ts at each tag (spec S6). The
       # per-PR job does the same thing from fixtures.
@@ -62,15 +77,3 @@ jobs:
         env:
           TEHAS_REQUIRE_UPSTREAM: "1"
           GH_TOKEN: ${{ github.token }}
-
-      # One run per schedule: read each tracked polyfill record, ask decide.ts what to
-      # file, file it. A proposed change lands on its own `track/<package>-<action>` branch and
-      # the PR that names it; the checkout is left as it was. A gh or git failure exits 2 and
-      # leaves every polyfill.json byte-identical. A dispatch is a dry run unless it says
-      # otherwise, and a dry run files nothing and writes no branch.
-      - run: bun run scripts/track.ts ${{ inputs.dry_run && '--dry-run' || '' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          # tehas-app/tehas is not this repository, so github.token cannot file there. Unset, the
-          # tracker exits 2 naming TEHAS_TRACKING_TOKEN and files nothing (spec S7).
-          TEHAS_TRACKING_TOKEN: ${{ secrets.TEHAS_TRACKING_TOKEN }}

@@ -83,7 +83,6 @@ bun run scripts/track.ts [--dry-run]
 - The containment scan (`until`: the first release that carries the merge commit) walks **every**
   release at or after the record's `from`, oldest first, with no cap, and stops at the first hit.
   The 12-release window is the probe's, not the tracker's.
-- `gh api repos/<upstream>/releases?per_page=100` returns one page of at most 100 releases. If that
-  call comes back with 100 or more, upstream has more releases than this tool fetched and an older
-  one could carry the merge commit, so both tools **exit 2 naming the limit** rather than silently
-  scanning a shorter list. When upstream passes 100 releases, the call has to paginate.
+- Both tools list releases with `gh api --paginate --slurp repos/<upstream>/releases?per_page=100`,
+  every page, so an older release that carries the merge commit is never missed. pi-rukas passed
+  100 releases in 2026-11, and the single-page call made the daily run exit 2 from then on.
