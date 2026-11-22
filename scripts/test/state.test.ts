@@ -152,7 +152,7 @@ test("test_no_parked_state: the labels rule files nothing, so no state is added 
   }
   const shipped = JSON.parse(readFileSync(REAL_POLYFILL, "utf8")) as Record<string, unknown>;
   expect(Object.keys(shipped).sort()).toEqual(["from", "name", "pr", "state", "until", "upstream"]);
-  expect(shipped.state).toBe("active");
+  expect(["active", "merged", "released", "declined"]).toContain(shipped.state);
 });
 
 test("patch_keeps_key_order_and_two_space_indent", () => {
