@@ -1,10 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..", "..");
-const PROBE = join(ROOT, "scripts", "capability_probe.ts");
 const FIXTURES = "scripts/fixtures/capabilities";
 /** The fixture set that declares the polyfilled feature: only the fail-the-probe tests use it. */
 const SYNTHETIC = "scripts/fixtures/synthetic";
@@ -16,9 +15,29 @@ interface Ran {
   err: string;
 }
 
-async function runProbe(args: string[], env: Record<string, string> = {}): Promise<Ran> {
-  const proc = Bun.spawnSync([process.execPath, "run", PROBE, ...args], {
-    cwd: ROOT,
+/**
+ * A copy of the scripts beside one issue-comments record that says `active`, so the
+ * fail-the-probe tests do not depend on the live record, which the tracker moves on.
+ */
+function activeRoot(): string {
+  const root = mkdtempSync(join(tmpdir(), "probe-active-"));
+  cpSync(join(ROOT, "scripts"), join(root, "scripts"), { recursive: true });
+  mkdirSync(join(root, "packages", "issue-comments"), { recursive: true });
+  const record = {
+    name: "issue-comments",
+    upstream: { issue: "trail-openers/pi-rukas#2020", feature: "issueComments" },
+    from: "v0.14.0",
+    state: "active",
+    pr: null,
+    until: null,
+  };
+  writeFileSync(join(root, "packages", "issue-comments", "polyfill.json"), `${JSON.stringify(record, null, 2)}\n`);
+  return root;
+}
+
+async function runProbe(args: string[], env: Record<string, string> = {}, root: string = ROOT): Promise<Ran> {
+  const proc = Bun.spawnSync([process.execPath, "run", join(root, "scripts", "capability_probe.ts"), ...args], {
+    cwd: root,
     env: { ...process.env, ...env },
     stdout: "pipe",
     stderr: "pipe",
@@ -45,7 +64,9 @@ test("test_ci_probe_command_exits_0: the exact per-PR CI command passes on the r
 });
 
 test("test_synthetic_fixture_fails_the_probe", async () => {
-  const ran = await runProbe(["--fixtures", SYNTHETIC]);
+  const root = activeRoot();
+  const ran = await runProbe(["--fixtures", SYNTHETIC], {}, root);
+  rmSync(root, { recursive: true, force: true });
   const fails = failingLines(ran.out);
   // The line has to name both the release and the package it fails on (S6).
   expect(fails.length).toBe(1);
