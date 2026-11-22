@@ -87,7 +87,6 @@ test("readPackages reads the polyfill records this repository ships", () => {
   });
   expect(["active", "merged", "released", "declined"]).toContain(record!.state);
 });
-});
 
 test("unreadable_polyfill_json: one stderr line naming the file, no throw, no package", () => {
   const root = newRoot();
