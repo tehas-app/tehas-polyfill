@@ -1,0 +1,49 @@
+# zizmor reads the GitHub Actions workflows of this repository for security
+# mistakes, on every pull request and on pushes. A high finding, or a
+# workflow it cannot parse, fails the job. It runs offline and builds
+# nothing from the repository. A finding accepted on purpose is ignored on
+# its own line, with the reason: # zizmor: ignore[<rule>] <reason>
+name: zizmor
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: zizmor-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  zizmor:
+    # GitHub's runner: the repository is public, so a pull request may come
+    # from a fork, and this job never runs on a machine of ours.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: zizmor at a pinned version, checked against its checksum
+        env:
+          # A new version: its tag on zizmorcore/zizmor, and for each archive
+          # the sha256 digest the GitHub API gives for the release's file.
+          ZIZMOR_VERSION: 1.32.0
+          ZIZMOR_X86_64: bb110cc765eca9cd7efb2e284a956be5974c60027b0970f16397d86208a9957b
+          ZIZMOR_AARCH64: cb152b207f815116d7fa1c1ee4614f61578803351395052908095e79adfd9fd0
+        run: |
+          case $(uname -m) in
+            x86_64) arch=x86_64 sum=$ZIZMOR_X86_64 ;;
+            aarch64 | arm64) arch=aarch64 sum=$ZIZMOR_AARCH64 ;;
+            *) echo "no pinned zizmor for $(uname -m)"; exit 1 ;;
+          esac
+          dir=$RUNNER_TEMP/zizmor
+          rm -rf "$dir" && mkdir -p "$dir"
+          curl -fsSL --proto '=https' --tlsv1.2 --retry 5 --retry-all-errors --retry-delay 5 \
+            -o "$dir/zizmor.tar.gz" \
+            "https://github.com/zizmorcore/zizmor/releases/download/v$ZIZMOR_VERSION/zizmor-$arch-unknown-linux-gnu.tar.gz"
+          echo "$sum  $dir/zizmor.tar.gz" | sha256sum -c -
+          tar -xzf "$dir/zizmor.tar.gz" -C "$dir" zizmor
+      - name: the workflows, high findings fail
+        run: |
+          "$RUNNER_TEMP/zizmor/zizmor" --offline --strict-collection \
+            --min-severity high --no-progress .
